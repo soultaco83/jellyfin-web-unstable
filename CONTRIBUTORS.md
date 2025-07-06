@@ -102,6 +102,7 @@
 - [Free O'Toole](https://github.com/freeotoole)
 - [TheBosZ](https://github.com/thebosz)
 - [Mark Reading](https://github.com/markreading)
+- [shoecar](https://github.com/shoecar)
 
 ## Emby Contributors
 
