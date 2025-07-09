@@ -103,6 +103,7 @@
 - [TheBosZ](https://github.com/thebosz)
 - [Mark Reading](https://github.com/markreading)
 - [shoecar](https://github.com/shoecar)
+- [johnnyg](https://github.com/johnnyg)
 
 ## Emby Contributors
 
