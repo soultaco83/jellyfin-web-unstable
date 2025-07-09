@@ -325,7 +325,7 @@ export class UserSettings {
             return this.set('cardRatings', val.toString(), false);
         }
 
-        return this.get('cardRatings', false);
+        return this.get('cardRatings', false) || 'all';
     }
 
     /**
