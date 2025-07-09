@@ -1,185 +1,363 @@
-name: Reset to Upstream and Merge PRs
+name: Pull from Upstream and Merge PRs
+# This workflow:
+# 1. Pulls latest changes from upstream (jellyfin/jellyfin-web)
+# 2. Merges specified PRs that aren't already merged
+# 3. Automatically removes successfully merged PRs from the DEFAULT_PR_NUMBERS list
+# 4. Commits and pushes all changes including the updated workflow file
 
 on:
   schedule:
     - cron: '0 8 * * *'  # Runs at midnight EST sunday
   workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: 'Comma-separated list of PR numbers to merge'
+        required: false
+        default: ''
+      auto_resolve_conflicts:
+        description: 'Auto-resolve conflicts in favor of our version (HEAD)'
+        required: false
+        type: boolean
+        default: false
 
-# Permission for the default GITHUB_TOKEN
 permissions:
   contents: write
 
 env:
   # Default PR numbers to use for both scheduled and manual runs (if not specified)
+  # This list is automatically updated - merged PRs are removed after successful runs
+  # To add new PRs: edit this line and add the PR numbers to the list
   DEFAULT_PR_NUMBERS: '6346,6356,6376,6676,6735,6803,6824,6831,6860,6904,6912,6919,6928,6939,6965,6969'
-  #DEFAULT_PR_NUMBERS: '6346,6356,6376,6735,6831,6904,6919,6928,6939,6965'
-
 
 jobs:
-  reset-and-merge:
+  pull-and-merge:
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # Just use the default GITHUB_TOKEN
       
       - name: Configure Git
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-      
-      - name: Backup important files
-        run: |
-          # Create backup directories
-          mkdir -p /tmp/workflows-backup
-          mkdir -p /tmp/files-backup/src/scripts/settings
-          mkdir -p /tmp/files-backup/src/components/playbackSettings
-          mkdir -p /tmp/files-backup/src/components/subtitlesettings
-          mkdir -p /tmp/files-backup/src/controllers
-          
-          # Only backup our specific workflows
-          if [ -d ".github/workflows" ]; then
-            if [ -f ".github/workflows/Reset to Upstream and Merge PRs.yml" ]; then
-              cp ".github/workflows/Reset to Upstream and Merge PRs.yml" "/tmp/workflows-backup/"
-            fi
-            if [ -f ".github/workflows/Build and Release.yml" ]; then
-              cp ".github/workflows/Build and Release.yml" "/tmp/workflows-backup/"
-            fi
-          fi
-
-          if [ -f "src/components/subtitlesettings/subtitlesettings.js" ]; then
-            cp src/components/subtitlesettings/subtitlesettings.js /tmp/files-backup/src/components/subtitlesettings/
-            echo "Backed up subtitlesettings.js"
-          fi
-          
-          if [ -f "src/index.html" ]; then
-            cp src/index.html /tmp/files-backup/src/
-            echo "Backed up index.html"
-          fi
-          
-          if [ -f "src/controllers/requests.js" ]; then
-            cp src/controllers/requests.js /tmp/files-backup/src/controllers/
-            echo "Backed up requests.js"
-          fi
-          
-          if [ -f "src/controllers/home.js" ]; then
-            cp src/controllers/home.js /tmp/files-backup/src/controllers/
-            echo "Backed up home.js"
-          fi
-          
-          if [ -f "src/controllers/home.html" ]; then
-            cp src/controllers/home.html /tmp/files-backup/src/controllers/
-            echo "Backed up home.html"
-          fi
+          # Set merge strategy to avoid merge commit messages prompts
+          git config pull.rebase false
       
       - name: Add upstream remote
         run: |
           git remote add upstream https://github.com/jellyfin/jellyfin-web.git || \
           git remote set-url upstream https://github.com/jellyfin/jellyfin-web.git
       
-      - name: Fetch from upstream
+      - name: Fetch all remotes
         run: |
-          git fetch upstream --prune
+          git fetch origin
+          git pull origin master
+          git fetch upstream
+          echo "Fetched latest changes from all remotes"
       
-      - name: Reset to upstream/master
+      - name: Merge upstream
+        id: merge_upstream
         run: |
-          git checkout master
-          git reset --hard upstream/master
-      
-      - name: Restore workflow files and changes
-        run: |
-          # Create workflows directory if it doesn't exist
-          mkdir -p .github/workflows
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit: $(git rev-parse HEAD)"
           
-          # Restore only our specific workflow files
-          if [ -d "/tmp/workflows-backup" ] && [ "$(ls -A /tmp/workflows-backup)" ]; then
-            cp -r /tmp/workflows-backup/* .github/workflows/
-            git add .github/workflows
-            git commit -m "Restore our specific workflow files after reset"
-          fi
-          
-          # Create array of files to restore
-          declare -A files_to_restore=(
-            ["src/components/subtitlesettings/subtitlesettings.js"]="/tmp/files-backup/src/components/subtitlesettings/subtitlesettings.js"
-            ["src/index.html"]="/tmp/files-backup/src/index.html"
-            ["src/controllers/requests.js"]="/tmp/files-backup/src/controllers/requests.js"
-            ["src/controllers/home.js"]="/tmp/files-backup/src/controllers/home.js"
-            ["src/controllers/home.html"]="/tmp/files-backup/src/controllers/home.html"
-          )
-          
-          # Restore each file if it exists in backup
-          for dest_file in "${!files_to_restore[@]}"; do
-            source_file="${files_to_restore[$dest_file]}"
-            if [ -f "$source_file" ]; then
-              mkdir -p "$(dirname "$dest_file")"
-              cp "$source_file" "$dest_file"
-              git add "$dest_file"
-              echo "Restored $dest_file"
+          # Try to merge upstream changes
+          if git merge upstream/master -m "Merge upstream changes from jellyfin/jellyfin-web"; then
+            echo "Successfully merged upstream changes"
+            echo "merge_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "Merge conflicts detected!"
+            echo "merge_success=false" >> $GITHUB_OUTPUT
+            
+            # Get list of conflicted files
+            echo "## Conflicted Files:" | tee conflict_files.txt
+            git diff --name-only --diff-filter=U | tee -a conflict_files.txt
+            
+            # Save conflict summary for Discord notification
+            CONFLICT_COUNT=$(git diff --name-only --diff-filter=U | wc -l)
+            CONFLICT_FILES=$(git diff --name-only --diff-filter=U | head -5 | tr '\n' ',' | sed 's/,$//')
+            echo "CONFLICT_COUNT=${CONFLICT_COUNT}" >> $GITHUB_ENV
+            echo "CONFLICT_FILES=${CONFLICT_FILES}" >> $GITHUB_ENV
+            
+            # Show detailed conflict info
+            echo ""
+            echo "## Conflict Details:"
+            for file in $(git diff --name-only --diff-filter=U); do
+              echo "### File: $file"
+              echo "Conflicts in file:"
+              grep -n "^<<<<<<< " "$file" 2>/dev/null | cut -d: -f1 | while read line; do
+                echo "  - Line $line"
+              done || echo "  - Unable to parse conflict markers"
+            done
+            
+            # Check if auto-resolve is enabled
+            if [ "${{ github.event.inputs.auto_resolve_conflicts }}" == "true" ]; then
+              echo ""
+              echo "Auto-resolving conflicts in favor of our version (HEAD)..."
+              git diff --name-only --diff-filter=U | xargs -r git checkout --ours
+              git add .
+              git commit -m "Auto-resolved conflicts in favor of our version"
+              echo "merge_success=true" >> $GITHUB_OUTPUT
+            else
+              # Abort the merge if not auto-resolving
+              git merge --abort
+              exit 1
             fi
-          done
-          
-          # Commit restored files if any were added
-          if [ -n "$(git diff --cached)" ]; then
-            git commit -m "Restore custom files after reset"
           fi
       
-      - name: Merge PRs
+      - name: Check for already merged PRs
+        if: steps.merge_upstream.outputs.merge_success == 'true'
         run: |
           # Use the input PR numbers if provided, otherwise use the default PR numbers
           PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
           if [ -z "$PR_NUMBERS" ]; then
             PR_NUMBERS="${{ env.DEFAULT_PR_NUMBERS }}"
-            echo "Using default PR numbers: $PR_NUMBERS"
-          else
-            echo "Using provided PR numbers: $PR_NUMBERS"
-            echo "Using provided PR numbers: $PR_NUMBERS"
           fi
           
           IFS=',' read -ra PR_ARRAY <<< "$PR_NUMBERS"
           
+          echo "## PR Status Check" > pr_status.txt
+          echo "" >> pr_status.txt
+          
           for PR_NUMBER in "${PR_ARRAY[@]}"; do
+            PR_NUMBER=$(echo $PR_NUMBER | xargs)  # Trim whitespace
+            
+            # Check if PR is already merged upstream
+            if git log upstream/master --grep="Merge pull request #$PR_NUMBER" --oneline | grep -q "#$PR_NUMBER"; then
+              echo "✓ PR #$PR_NUMBER is already merged upstream" >> pr_status.txt
+            else
+              echo "○ PR #$PR_NUMBER needs to be merged" >> pr_status.txt
+              echo "$PR_NUMBER" >> prs_to_merge.txt
+            fi
+          done
+          
+          echo "PR Status:"
+          cat pr_status.txt
+      
+      - name: Merge PRs
+        if: steps.merge_upstream.outputs.merge_success == 'true'
+        run: |
+          if [ ! -f "prs_to_merge.txt" ]; then
+            echo "All PRs are already merged upstream!"
+            exit 0
+          fi
+          
+          echo "## Merge Results" > merge_results.txt
+          echo "" >> merge_results.txt
+          
+          while IFS= read -r PR_NUMBER; do
             echo "Processing PR #$PR_NUMBER"
             
             # Fetch the PR branch
             if git fetch upstream pull/$PR_NUMBER/head:pr-$PR_NUMBER; then
               echo "Fetched PR #$PR_NUMBER successfully"
               
-              # Try to merge the PR
-              if git merge pr-$PR_NUMBER --no-ff -m "Merge PR $PR_NUMBER into master"; then
-                echo "Merged PR #$PR_NUMBER successfully"
+              # Check if this PR can be merged
+              MERGE_BASE=$(git merge-base HEAD pr-$PR_NUMBER)
+              if git merge-tree $MERGE_BASE HEAD pr-$PR_NUMBER | grep -q '^<<<<<<<'; then
+                echo "⚠️  PR #$PR_NUMBER would cause conflicts - skipping" >> merge_results.txt
               else
-                echo "Merge conflict in PR #$PR_NUMBER"
-                git merge --abort
-                echo "Warning: Skipped PR #$PR_NUMBER due to merge conflicts" >> merge_results.txt
+                # Try to merge the PR
+                if git merge pr-$PR_NUMBER --no-ff -m "Merge PR #$PR_NUMBER"; then
+                  echo "✅ Merged PR #$PR_NUMBER successfully" >> merge_results.txt
+                  
+                  # Clean up the PR branch
+                  git branch -D pr-$PR_NUMBER
+                else
+                  echo "❌ Failed to merge PR #$PR_NUMBER (unexpected error)" >> merge_results.txt
+                  git merge --abort
+                fi
               fi
             else
-              echo "Error: Failed to fetch PR #$PR_NUMBER. The PR may not exist."
-              echo "Warning: Skipped PR #$PR_NUMBER (not found)" >> merge_results.txt
+              echo "❌ Failed to fetch PR #$PR_NUMBER (PR may not exist or is closed)" >> merge_results.txt
+            fi
+          done < prs_to_merge.txt
+          
+          echo ""
+          echo "Merge Summary:"
+          cat merge_results.txt
+      
+      - name: Update PR list in workflow file
+        if: steps.merge_upstream.outputs.merge_success == 'true'
+        run: |
+          # Read current PR list
+          CURRENT_PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
+          if [ -z "$CURRENT_PR_NUMBERS" ]; then
+            CURRENT_PR_NUMBERS="${{ env.DEFAULT_PR_NUMBERS }}"
+          fi
+          
+          # Create array of successfully merged PRs
+          MERGED_PRS=()
+          
+          # Check merge results and upstream merges
+          if [ -f "pr_status.txt" ]; then
+            # Get PRs that are already merged upstream
+            while IFS= read -r line; do
+              if echo "$line" | grep -q "✓ PR #"; then
+                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#')
+                MERGED_PRS+=("$PR_NUM")
+              fi
+            done < pr_status.txt
+          fi
+          
+          if [ -f "merge_results.txt" ]; then
+            # Get PRs we successfully merged
+            while IFS= read -r line; do
+              if echo "$line" | grep -q "✅ Merged PR #"; then
+                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#')
+                MERGED_PRS+=("$PR_NUM")
+              fi
+            done < merge_results.txt
+          fi
+          
+          # Remove merged PRs from the list
+          IFS=',' read -ra PR_ARRAY <<< "$CURRENT_PR_NUMBERS"
+          NEW_PR_LIST=""
+          REMOVED_COUNT=0
+          
+          for PR in "${PR_ARRAY[@]}"; do
+            PR=$(echo $PR | xargs)  # Trim whitespace
+            IS_MERGED=false
+            
+            for MERGED_PR in "${MERGED_PRS[@]}"; do
+              if [ "$PR" == "$MERGED_PR" ]; then
+                IS_MERGED=true
+                ((REMOVED_COUNT++))
+                break
+              fi
+            done
+            
+            if [ "$IS_MERGED" == "false" ]; then
+              if [ -z "$NEW_PR_LIST" ]; then
+                NEW_PR_LIST="$PR"
+              else
+                NEW_PR_LIST="$NEW_PR_LIST,$PR"
+              fi
             fi
           done
           
-          if [ -f "merge_results.txt" ]; then
-            echo "Some PRs had issues and were skipped:"
-            cat merge_results.txt
+          # Update the workflow file if PRs were removed
+          if [ "$NEW_PR_LIST" != "$CURRENT_PR_NUMBERS" ]; then
+            echo "Updating PR list in workflow file..."
+            echo "Old list: $CURRENT_PR_NUMBERS"
+            echo "New list: $NEW_PR_LIST"
+            echo "Removed $REMOVED_COUNT merged PR(s)"
+            
+            # Update the workflow file
+            WORKFLOW_FILE=".github/workflows/Pull from Upstream and Merge PRs.yml"
+            
+            if [ -f "$WORKFLOW_FILE" ]; then
+              # Create a backup
+              cp "$WORKFLOW_FILE" "${WORKFLOW_FILE}.bak"
+              
+              # Update the DEFAULT_PR_NUMBERS line
+              sed -i "s/DEFAULT_PR_NUMBERS: '.*'/DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'/" "$WORKFLOW_FILE"
+              
+              # Verify the change was made
+              if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
+                echo "Successfully updated workflow file"
+                echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
+                
+                # Stage the change for commit
+                git add "$WORKFLOW_FILE"
+                
+                # Remove backup
+                rm -f "${WORKFLOW_FILE}.bak"
+              else
+                echo "Error: Failed to update workflow file"
+                # Restore from backup
+                mv "${WORKFLOW_FILE}.bak" "$WORKFLOW_FILE"
+              fi
+            else
+              echo "Warning: Workflow file not found at $WORKFLOW_FILE"
+            fi
+          else
+            echo "No PRs to remove from the list"
           fi
       
-      - name: Remove unwanted workflow files before pushing
+      - name: Remove unwanted upstream workflow files
+        if: steps.merge_upstream.outputs.merge_success == 'true'
         run: |
-          # Remove all workflow files except our specific ones
-          find .github/workflows -type f -not -name "Reset to Upstream and Merge PRs.yml" -not -name "Build and Release.yml" -exec rm -f {} \;
+          # Get list of our workflow files to keep
+          OUR_WORKFLOWS=("Reset to Upstream and Merge PRs.yml" "Build and Release.yml" "Pull from Upstream and Merge PRs.yml")
           
-          # Check if any files were removed and commit if needed
-          if [ -n "$(git status --porcelain .github/workflows)" ]; then
+          # Find and remove upstream workflow files
+          REMOVED_FILES=0
+          for file in .github/workflows/*.yml .github/workflows/*.yaml; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              
+              # Check if this file should be kept
+              KEEP_FILE=false
+              for keeper in "${OUR_WORKFLOWS[@]}"; do
+                if [ "$filename" == "$keeper" ]; then
+                  KEEP_FILE=true
+                  break
+                fi
+              done
+              
+              if [ "$KEEP_FILE" == "false" ]; then
+                echo "Removing upstream workflow: $filename"
+                rm -f "$file"
+                ((REMOVED_FILES++))
+              fi
+            fi
+          done
+          
+          # Commit if files were removed
+          if [ $REMOVED_FILES -gt 0 ]; then
             git add .github/workflows
-            git commit -m "Remove upstream workflow files"
+            git commit -m "Remove $REMOVED_FILES upstream workflow file(s)"
           fi
-
+      
       - name: Push changes
+        if: steps.merge_upstream.outputs.merge_success == 'true'
         run: |
-          git push origin master --force
+          # Check if we have any uncommitted changes (workflow file update)
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Auto-update PR list: removed successfully merged PRs"
+          fi
+          
+          # Push all changes
+          git push origin master
+      
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.merge_upstream.outputs.merge_success }}" == "true" ]; then
+            echo "✅ Successfully merged from upstream" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Failed to merge from upstream due to conflicts" >> $GITHUB_STEP_SUMMARY
+            
+            if [ -f "conflict_files.txt" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              cat conflict_files.txt >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "pr_status.txt" ]; then
+            cat pr_status.txt >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f "merge_results.txt" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat merge_results.txt >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Add info about PR list updates
+          if [ -n "${{ env.PR_LIST_UPDATED }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## PR List Update" >> $GITHUB_STEP_SUMMARY
+            echo "Automatically removed merged PRs from the workflow file" >> $GITHUB_STEP_SUMMARY
+          fi
       
       - name: Send Discord notification on failure
         uses: Ilshidur/action-discord@master
@@ -188,6 +366,27 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         with:
           args: |
-            ❌ Repository reset failed!
+            ❌ Merge from upstream failed!
+            Reason: ${{ steps.merge_upstream.outputs.merge_success == 'false' && 'Merge conflicts' || 'Unknown error' }}
+            ${{ env.CONFLICT_COUNT && format('Conflicts in {0} files: {1}', env.CONFLICT_COUNT, env.CONFLICT_FILES) || '' }}
             PRs attempted: ${{ github.event.inputs.pr_numbers || env.DEFAULT_PR_NUMBERS }}
-            See workflow logs for details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            See workflow logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+      - name: Send Discord notification on success
+        uses: Ilshidur/action-discord@master
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            ✅ Successfully synced with upstream!
+            ${{ env.PR_LIST_UPDATED && '📝 PR list auto-updated - merged PRs removed' || '' }}
+            Check the summary: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+      - name: Upload conflict information
+        if: failure() && steps.merge_upstream.outputs.merge_success == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-conflicts
+          path: conflict_files.txt
+          retention-days: 7
