@@ -23,6 +23,8 @@ env:
   # This list is automatically updated - merged PRs are removed after successful runs
   # To add new PRs: edit this line and add the PR numbers to the list
   DEFAULT_PR_NUMBERS: '6346,6356,6376,6676,6735,6803,6824,6831,6860,6904,6912,6919,6928,6939,6965,6969'
+  # Token for authentication
+  GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN || github.token }}
 
 jobs:
   pull-and-merge:
@@ -33,7 +35,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.PRS || github.token }}  # Use PAT if available
+          token: ${{ env.GH_TOKEN }}
+          persist-credentials: true
+      
+      - name: Verify authentication
+        run: |
+          # Check if PAT_TOKEN is available
+          if [ -n "${{ secrets.PAT_TOKEN }}" ]; then
+            echo "✓ PAT_TOKEN is configured"
+          else
+            echo "⚠ PAT_TOKEN not found, using default GITHUB_TOKEN"
+            echo "Note: Without PAT_TOKEN, the workflow cannot update itself"
+          fi
       
       - name: Configure Git
         run: |
@@ -44,14 +57,27 @@ jobs:
       
       - name: Add upstream remote
         run: |
+          # Add upstream without authentication (public repo)
           git remote add upstream https://github.com/jellyfin/jellyfin-web.git || \
           git remote set-url upstream https://github.com/jellyfin/jellyfin-web.git
+          
+          # Fix origin URL to include authentication token
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git
       
       - name: Fetch all remotes
         run: |
+          echo "Current remotes:"
+          git remote -v
+          
+          echo "Fetching from origin..."
           git fetch origin
+          
+          echo "Pulling from origin master..."
           git pull origin master
+          
+          echo "Fetching from upstream..."
           git fetch upstream
+          
           echo "Fetched latest changes from all remotes"
       
       - name: Merge upstream
