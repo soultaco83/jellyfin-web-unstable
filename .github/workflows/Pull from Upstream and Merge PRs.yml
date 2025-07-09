@@ -4,6 +4,11 @@ name: Pull from Upstream and Merge PRs
 # 2. Merges specified PRs that aren't already merged
 # 3. Automatically removes successfully merged PRs from the DEFAULT_PR_NUMBERS list
 # 4. Commits and pushes all changes including the updated workflow file
+#
+# IMPORTANT: To enable auto-updating of this workflow file:
+# 1. Create a Personal Access Token with 'repo' and 'workflow' permissions
+# 2. Add it as a secret named PRS in your repository settings
+# 3. The workflow will use this token to update itself
 
 on:
   schedule:
@@ -18,7 +23,7 @@ on:
         description: 'Auto-resolve conflicts in favor of our version (HEAD)'
         required: false
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
@@ -27,7 +32,7 @@ env:
   # Default PR numbers to use for both scheduled and manual runs (if not specified)
   # This list is automatically updated - merged PRs are removed after successful runs
   # To add new PRs: edit this line and add the PR numbers to the list
-  DEFAULT_PR_NUMBERS: '6346,6356,6376,6676,6735,6803,6831,6860,6904,6912,6919,6928,6939,6965'
+  DEFAULT_PR_NUMBERS: '6346,6356,6376,6676,6735,6803,6824,6831,6860,6904,6912,6919,6928,6939,6965,6969'
 
 jobs:
   pull-and-merge:
@@ -38,6 +43,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.PRS || github.token }}  # Use PAT if available
       
       - name: Configure Git
         run: |
