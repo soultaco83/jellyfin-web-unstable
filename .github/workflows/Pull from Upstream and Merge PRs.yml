@@ -1,14 +1,4 @@
 name: Pull from Upstream and Merge PRs
-# This workflow:
-# 1. Pulls latest changes from upstream (jellyfin/jellyfin-web)
-# 2. Merges specified PRs that aren't already merged
-# 3. Automatically removes successfully merged PRs from the DEFAULT_PR_NUMBERS list
-# 4. Commits and pushes all changes including the updated workflow file
-#
-# IMPORTANT: To enable auto-updating of this workflow file:
-# 1. Create a Personal Access Token with 'repo' and 'workflow' permissions
-# 2. Add it as a secret named PRS in your repository settings
-# 3. The workflow will use this token to update itself
 
 on:
   schedule:
