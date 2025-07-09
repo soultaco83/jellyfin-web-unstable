@@ -1919,6 +1919,14 @@ export class PlaybackManager {
                         SortBy: options.shuffle ? 'Random' : 'SortName',
                         MediaTypes: 'Video'
                     }, queryOptions));
+                case 'Studio':
+                    return getItemsForPlayback(serverId, mergePlaybackQueries({
+                        StudioIds: firstItem.Id,
+                        Filters: 'IsNotFolder',
+                        Recursive: true,
+                        SortBy: options.shuffle ? 'Random' : 'SortName',
+                        MediaTypes: 'Video'
+                    }, queryOptions));
                 case 'Series':
                 case 'Season':
                     return getSeriesOrSeasonPlaybackPromise(firstItem, options, items);
