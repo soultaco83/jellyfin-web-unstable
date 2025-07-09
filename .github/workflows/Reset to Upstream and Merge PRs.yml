@@ -183,35 +183,55 @@ jobs:
       - name: Update PR list in workflow file
         if: steps.merge_upstream.outputs.merge_success == 'true'
         run: |
+          set +e  # Don't exit on error, we'll handle errors manually
+          
+          echo "Starting PR list update process..."
+          
           # Read current PR list
           CURRENT_PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
           if [ -z "$CURRENT_PR_NUMBERS" ]; then
             CURRENT_PR_NUMBERS="${{ env.DEFAULT_PR_NUMBERS }}"
           fi
           
+          echo "Current PR list: $CURRENT_PR_NUMBERS"
+          
           # Create array of successfully merged PRs
           MERGED_PRS=()
           
           # Check merge results and upstream merges
           if [ -f "pr_status.txt" ]; then
+            echo "Checking pr_status.txt for already merged PRs..."
             # Get PRs that are already merged upstream
             while IFS= read -r line; do
               if echo "$line" | grep -q "✓ PR #"; then
-                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#')
-                MERGED_PRS+=("$PR_NUM")
+                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#' || true)
+                if [ -n "$PR_NUM" ]; then
+                  echo "  Found merged upstream: PR #$PR_NUM"
+                  MERGED_PRS+=("$PR_NUM")
+                fi
               fi
             done < pr_status.txt
+          else
+            echo "No pr_status.txt file found"
           fi
           
           if [ -f "merge_results.txt" ]; then
+            echo "Checking merge_results.txt for newly merged PRs..."
             # Get PRs we successfully merged
             while IFS= read -r line; do
               if echo "$line" | grep -q "✅ Merged PR #"; then
-                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#')
-                MERGED_PRS+=("$PR_NUM")
+                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#' || true)
+                if [ -n "$PR_NUM" ]; then
+                  echo "  Found newly merged: PR #$PR_NUM"
+                  MERGED_PRS+=("$PR_NUM")
+                fi
               fi
             done < merge_results.txt
+          else
+            echo "No merge_results.txt file found"
           fi
+          
+          echo "Total merged PRs found: ${#MERGED_PRS[@]}"
           
           # Remove merged PRs from the list
           IFS=',' read -ra PR_ARRAY <<< "$CURRENT_PR_NUMBERS"
@@ -226,6 +246,7 @@ jobs:
               if [ "$PR" == "$MERGED_PR" ]; then
                 IS_MERGED=true
                 ((REMOVED_COUNT++))
+                echo "  Will remove PR #$PR from list"
                 break
               fi
             done
@@ -254,12 +275,16 @@ jobs:
               cp "$WORKFLOW_FILE" "${WORKFLOW_FILE}.bak"
               
               # Update the DEFAULT_PR_NUMBERS line
-              sed -i "s/DEFAULT_PR_NUMBERS: '.*'/DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'/" "$WORKFLOW_FILE"
+              # Use a more specific pattern to avoid issues
+              sed -i "s|DEFAULT_PR_NUMBERS: '[^']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
               
               # Verify the change was made
               if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
                 echo "Successfully updated workflow file"
                 echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
+                
+                # Show the updated line
+                grep "DEFAULT_PR_NUMBERS:" "$WORKFLOW_FILE"
                 
                 # Stage the change for commit
                 git add "$WORKFLOW_FILE"
@@ -268,11 +293,18 @@ jobs:
                 rm -f "${WORKFLOW_FILE}.bak"
               else
                 echo "Error: Failed to update workflow file"
+                echo "Looking for DEFAULT_PR_NUMBERS line:"
+                grep "DEFAULT_PR_NUMBERS:" "$WORKFLOW_FILE" || echo "Line not found!"
                 # Restore from backup
                 mv "${WORKFLOW_FILE}.bak" "$WORKFLOW_FILE"
+                exit 1
               fi
             else
               echo "Warning: Workflow file not found at $WORKFLOW_FILE"
+              echo "Current directory: $(pwd)"
+              echo "Files in .github/workflows/:"
+              ls -la .github/workflows/ || echo "Directory not found"
+              exit 1
             fi
           else
             echo "No PRs to remove from the list"
