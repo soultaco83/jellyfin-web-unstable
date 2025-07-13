@@ -22,7 +22,7 @@ env:
   # Default PR numbers to use for both scheduled and manual runs (if not specified)
   # This list is automatically updated - merged PRs are removed after successful runs
   # To add new PRs: edit this line and add the PR numbers to the list
-  DEFAULT_PR_NUMBERS: '6346,6356,6376,6735,6803,6824,6831,6904,6912,6919,6928,6965,6969'
+  DEFAULT_PR_NUMBERS: '6824,6969'
   # Token for authentication
   GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN || github.token }}
 
@@ -298,10 +298,10 @@ jobs:
               
               # Update the DEFAULT_PR_NUMBERS line
               # Use a more specific pattern to avoid issues
-              sed -i "s|DEFAULT_PR_NUMBERS: '[^']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
+              sed -i "s|DEFAULT_PR_NUMBERS: '6824,6969']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
               
               # Verify the change was made
-              if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
+              if grep -q "DEFAULT_PR_NUMBERS: '6824,6969'" "$WORKFLOW_FILE"; then
                 echo "Successfully updated workflow file"
                 echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
                 
