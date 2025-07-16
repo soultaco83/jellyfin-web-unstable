@@ -370,6 +370,7 @@ jobs:
       - name: Push changes
         if: steps.merge_upstream.outputs.merge_success == 'true'
         run: |
+          rm -f pr_status.txt merge_results.txt prs_to_merge.txt conflict_files.txt
           # Check if we have any uncommitted changes (workflow file update)
           if [ -n "$(git status --porcelain)" ]; then
             git commit -m "Auto-update PR list: removed successfully merged PRs"
