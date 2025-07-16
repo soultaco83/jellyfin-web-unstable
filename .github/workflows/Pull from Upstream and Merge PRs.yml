@@ -372,7 +372,7 @@ jobs:
         run: |
           rm -f pr_status.txt merge_results.txt prs_to_merge.txt conflict_files.txt
           # Check if we have any uncommitted changes (workflow file update)
-          if [ -n "$(git status --porcelain)" ]; then
+          if ! git diff --cached --quiet; then
             git commit -m "Auto-update PR list: removed successfully merged PRs"
           fi
           
