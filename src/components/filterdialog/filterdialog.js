@@ -1,4 +1,4 @@
-import dom from '../../scripts/dom';
+import dom from '../../utils/dom';
 import dialogHelper from '../dialogHelper/dialogHelper';
 import { getFilterStatus } from './filterIndicator';
 import globalize from '../../lib/globalize';
