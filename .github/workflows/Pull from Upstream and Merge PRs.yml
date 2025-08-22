@@ -131,9 +131,15 @@ jobs:
               # Get list of conflicted files
               CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
               
+              # Get list of files that were deleted in HEAD but modified in upstream (modify/delete conflicts)
+              DELETED_IN_HEAD=$(git ls-files --deleted)
+              
               # Resolve conflicts intelligently
               for file in $CONFLICTED_FILES; do
                 IS_PROTECTED=false
+                IS_DELETED_IN_HEAD=false
+                
+                # Check if this is a protected file
                 for protected in "${PROTECTED_FILES[@]}"; do
                   if [[ "$file" == "$protected" ]]; then
                     IS_PROTECTED=true
@@ -141,14 +147,31 @@ jobs:
                   fi
                 done
                 
-                if [[ "$IS_PROTECTED" == true ]]; then
+                # Check if this file was deleted in HEAD (modify/delete conflict)
+                for deleted_file in $DELETED_IN_HEAD; do
+                  if [[ "$file" == "$deleted_file" ]]; then
+                    IS_DELETED_IN_HEAD=true
+                    break
+                  fi
+                done
+                
+                if [[ "$IS_DELETED_IN_HEAD" == true ]]; then
+                  if [[ "$IS_PROTECTED" == true ]]; then
+                    echo "  Modify/delete conflict - keeping file deleted (protected): $file"
+                    git rm "$file"
+                  else
+                    echo "  Modify/delete conflict - accepting upstream version: $file"
+                    git add "$file"
+                  fi
+                elif [[ "$IS_PROTECTED" == true ]]; then
                   echo "  Protecting file: $file (keeping our version)"
                   git checkout --ours "$file"
+                  git add "$file"
                 else
                   echo "  Preferring upstream: $file"
                   git checkout --theirs "$file"
+                  git add "$file"
                 fi
-                git add "$file"
               done
               
               git commit -m "Auto-resolved conflicts with protected files strategy"
@@ -228,10 +251,13 @@ jobs:
                   
                   # Get list of conflicted files
                   CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
+                  DELETED_IN_HEAD=$(git ls-files --deleted)
                   
                   # Resolve conflicts intelligently
                   for file in $CONFLICTED_FILES; do
                     IS_PROTECTED=false
+                    IS_DELETED_IN_HEAD=false
+                    
                     for protected in "${PROTECTED_FILES[@]}"; do
                       if [[ "$file" == "$protected" ]]; then
                         IS_PROTECTED=true
@@ -239,14 +265,30 @@ jobs:
                       fi
                     done
                     
-                    if [[ "$IS_PROTECTED" == true ]]; then
+                    for deleted_file in $DELETED_IN_HEAD; do
+                      if [[ "$file" == "$deleted_file" ]]; then
+                        IS_DELETED_IN_HEAD=true
+                        break
+                      fi
+                    done
+                    
+                    if [[ "$IS_DELETED_IN_HEAD" == true ]]; then
+                      if [[ "$IS_PROTECTED" == true ]]; then
+                        echo "  Modify/delete conflict - keeping file deleted (protected): $file"
+                        git rm "$file"
+                      else
+                        echo "  Modify/delete conflict - accepting upstream version: $file"
+                        git add "$file"
+                      fi
+                    elif [[ "$IS_PROTECTED" == true ]]; then
                       echo "  Protecting file: $file (keeping our version)"
                       git checkout --ours "$file"
+                      git add "$file"
                     else
                       echo "  Preferring upstream: $file"
                       git checkout --theirs "$file"
+                      git add "$file"
                     fi
-                    git add "$file"
                   done
                   
                   # Complete the merge
