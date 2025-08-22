@@ -125,8 +125,11 @@ jobs:
                 ".github/workflows/Pull from Upstream and Merge PRs.yml"
                 ".github/workflows/Reset to Upstream and Merge PRs.yml"
                 ".github/workflows/Build and Release.yml"
-                # Add more files here as needed, one per line
-              )
+                ".github/workflows/__codeql.yml"
+                ".github/workflows/__package.yml"
+                ".github/workflows/__quality_checks.yml"
+                ".github/workflows/pull_request.yml"
+                )
               
               # Get list of conflicted files
               CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
