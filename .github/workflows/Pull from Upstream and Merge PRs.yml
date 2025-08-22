@@ -118,17 +118,13 @@ jobs:
             # Check if auto-resolve is enabled
             if [ "${{ github.event.inputs.auto_resolve_conflicts }}" == "true" ]; then
               echo ""
-              echo "Auto-resolving conflicts with protected files strategy..."
+              echo "Auto-resolving conflicts with workflow rejection strategy..."
               
               # CUSTOMIZE: Add any files you want to protect (keep your version) here:
               PROTECTED_FILES=(
                 ".github/workflows/Pull from Upstream and Merge PRs.yml"
                 ".github/workflows/Reset to Upstream and Merge PRs.yml"
                 ".github/workflows/Build and Release.yml"
-                ".github/workflows/__codeql.yml"
-                ".github/workflows/__package.yml"
-                ".github/workflows/__quality_checks.yml"
-                ".github/workflows/pull_request.yml"
                 )
               
               # Get list of conflicted files
@@ -141,6 +137,12 @@ jobs:
               for file in $CONFLICTED_FILES; do
                 IS_PROTECTED=false
                 IS_DELETED_IN_HEAD=false
+                IS_WORKFLOW=false
+                
+                # Check if this is a workflow file
+                if [[ "$file" == .github/workflows/* ]]; then
+                  IS_WORKFLOW=true
+                fi
                 
                 # Check if this is a protected file
                 for protected in "${PROTECTED_FILES[@]}"; do
@@ -161,7 +163,10 @@ jobs:
                 if [[ "$IS_DELETED_IN_HEAD" == true ]]; then
                   if [[ "$IS_PROTECTED" == true ]]; then
                     echo "  Modify/delete conflict - keeping file deleted (protected): $file"
-                    git rm "$file"
+                    git rm "$file" 2>/dev/null || true
+                  elif [[ "$IS_WORKFLOW" == true ]]; then
+                    echo "  Modify/delete conflict - rejecting upstream workflow: $file"
+                    git rm "$file" 2>/dev/null || true
                   else
                     echo "  Modify/delete conflict - accepting upstream version: $file"
                     git add "$file"
@@ -170,6 +175,9 @@ jobs:
                   echo "  Protecting file: $file (keeping our version)"
                   git checkout --ours "$file"
                   git add "$file"
+                elif [[ "$IS_WORKFLOW" == true ]]; then
+                  echo "  Rejecting upstream workflow: $file"
+                  git rm "$file" 2>/dev/null || true
                 else
                   echo "  Preferring upstream: $file"
                   git checkout --theirs "$file"
@@ -177,7 +185,7 @@ jobs:
                 fi
               done
               
-              git commit -m "Auto-resolved conflicts with protected files strategy"
+              git commit -m "Auto-resolved conflicts with workflow rejection strategy"
               echo "merge_success=true" >> $GITHUB_OUTPUT
             else
               # Abort the merge if not auto-resolving
@@ -242,7 +250,7 @@ jobs:
                 if git merge pr-$PR_NUMBER --no-ff -m "Merge PR $PR_NUMBER"; then
                   echo "Success: Merged PR $PR_NUMBER" >> merge_results.txt
                 else
-                  # Handle conflicts with protected files strategy
+                  # Handle conflicts with workflow rejection strategy
                   echo "Resolving conflicts for PR $PR_NUMBER..." 
                   
                   # Same protected files list as above
@@ -260,6 +268,12 @@ jobs:
                   for file in $CONFLICTED_FILES; do
                     IS_PROTECTED=false
                     IS_DELETED_IN_HEAD=false
+                    IS_WORKFLOW=false
+                    
+                    # Check if this is a workflow file
+                    if [[ "$file" == .github/workflows/* ]]; then
+                      IS_WORKFLOW=true
+                    fi
                     
                     for protected in "${PROTECTED_FILES[@]}"; do
                       if [[ "$file" == "$protected" ]]; then
@@ -278,7 +292,10 @@ jobs:
                     if [[ "$IS_DELETED_IN_HEAD" == true ]]; then
                       if [[ "$IS_PROTECTED" == true ]]; then
                         echo "  Modify/delete conflict - keeping file deleted (protected): $file"
-                        git rm "$file"
+                        git rm "$file" 2>/dev/null || true
+                      elif [[ "$IS_WORKFLOW" == true ]]; then
+                        echo "  Modify/delete conflict - rejecting upstream workflow: $file"
+                        git rm "$file" 2>/dev/null || true
                       else
                         echo "  Modify/delete conflict - accepting upstream version: $file"
                         git add "$file"
@@ -287,6 +304,9 @@ jobs:
                       echo "  Protecting file: $file (keeping our version)"
                       git checkout --ours "$file"
                       git add "$file"
+                    elif [[ "$IS_WORKFLOW" == true ]]; then
+                      echo "  Rejecting upstream workflow: $file"
+                      git rm "$file" 2>/dev/null || true
                     else
                       echo "  Preferring upstream: $file"
                       git checkout --theirs "$file"
