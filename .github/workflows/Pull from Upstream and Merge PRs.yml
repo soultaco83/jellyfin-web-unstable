@@ -20,7 +20,8 @@ permissions:
 
 env:
   # Default PR numbers to use for both scheduled and manual runs (if not specified)
-  # This list is automatically updated - merged PRs are removed after successful runs
+  # This list is automatically updated - PRs are removed only after being merged upstream
+  # PRs are reapplied on each run to ensure you have the latest version
   # To add new PRs: edit this line and add the PR numbers to the list
   DEFAULT_PR_NUMBERS: ''
   # Token for authentication
@@ -104,6 +105,481 @@ jobs:
             echo "CONFLICT_COUNT=${CONFLICT_COUNT}" >> $GITHUB_ENV
             echo "CONFLICT_FILES=${CONFLICT_FILES}" >> $GITHUB_ENV
             
+            # Show detailed conflict info
+            echo ""
+            echo "## Conflict Details:"
+            for file in $(git diff --name-only --diff-filter=U); do
+              echo "### File: $file"
+              echo "Conflicts in file:"
+              grep -n "^<<<<<<< " "$file" 2>/dev/null | cut -d: -f1 | while read line; do
+                echo "  - Line $line"
+              done || echo "  - Unable to parse conflict markers"
+            done
+            
+            # Check if auto-resolve is enabled
+            # Default to true for scheduled runs, use input value for manual runs
+            AUTO_RESOLVE="${{ github.event.inputs.auto_resolve_conflicts }}"
+            if [ -z "$AUTO_RESOLVE" ] && [ "${{ github.event_name }}" == "schedule" ]; then
+              AUTO_RESOLVE="true"
+            fi
+            
+            if [ "$AUTO_RESOLVE" == "true" ]; then
+              echo ""
+              echo "Auto-resolving conflicts with workflow rejection strategy..."
+              
+              # CUSTOMIZE: Add any files you want to protect (keep your version) here:
+              PROTECTED_FILES=(
+                ".github/workflows/Pull from Upstream and Merge PRs.yml"
+                ".github/workflows/Reset to Upstream and Merge PRs.yml"
+                ".github/workflows/Build and Release.yml"
+                )
+              
+              # Get list of conflicted files
+              CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
+              
+              # Get list of files that were deleted in HEAD but modified in upstream (modify/delete conflicts)
+              DELETED_IN_HEAD=$(git ls-files --deleted)
+              
+              # Resolve conflicts intelligently
+              for file in $CONFLICTED_FILES; do
+                IS_PROTECTED=false
+                IS_DELETED_IN_HEAD=false
+                IS_WORKFLOW=false
+                
+                # Check if this is a workflow file
+                if [[ "$file" == .github/workflows/* ]]; then
+                  IS_WORKFLOW=true
+                fi
+                
+                # Check if this is a protected file
+                for protected in "${PROTECTED_FILES[@]}"; do
+                  if [[ "$file" == "$protected" ]]; then
+                    IS_PROTECTED=true
+                    break
+                  fi
+                done
+                
+                # Check if this file was deleted in HEAD (modify/delete conflict)
+                for deleted_file in $DELETED_IN_HEAD; do
+                  if [[ "$file" == "$deleted_file" ]]; then
+                    IS_DELETED_IN_HEAD=true
+                    break
+                  fi
+                done
+                
+                if [[ "$IS_DELETED_IN_HEAD" == true ]]; then
+                  if [[ "$IS_PROTECTED" == true ]]; then
+                    echo "  Modify/delete conflict - keeping file deleted (protected): $file"
+                    git rm "$file" 2>/dev/null || true
+                  elif [[ "$IS_WORKFLOW" == true ]]; then
+                    echo "  Modify/delete conflict - rejecting upstream workflow: $file"
+                    git rm "$file" 2>/dev/null || true
+                  else
+                    echo "  Modify/delete conflict - accepting upstream version: $file"
+                    git add "$file"
+                  fi
+                elif [[ "$IS_PROTECTED" == true ]]; then
+                  echo "  Protecting file: $file (keeping our version)"
+                  git checkout --ours "$file"
+                  git add "$file"
+                elif [[ "$IS_WORKFLOW" == true ]]; then
+                  echo "  Rejecting upstream workflow: $file"
+                  git rm "$file" 2>/dev/null || true
+                else
+                  echo "  Preferring upstream: $file"
+                  git checkout --theirs "$file"
+                  git add "$file"
+                fi
+              done
+              
+              git commit -m "Auto-resolved conflicts with workflow rejection strategy"
+              echo "merge_success=true" >> $GITHUB_OUTPUT
+            else
+              # Abort the merge if not auto-resolving
+              git merge --abort
+              exit 1
+            fi
+          fi
+      
+      - name: Check for already merged PRs
+        if: steps.merge_upstream.outputs.merge_success == 'true'
+        run: |
+          # Use the input PR numbers if provided, otherwise use the default PR numbers
+          PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
+          if [ -z "$PR_NUMBERS" ]; then
+            PR_NUMBERS="${{ env.DEFAULT_PR_NUMBERS }}"
+          fi
+          
+          IFS=',' read -ra PR_ARRAY <<< "$PR_NUMBERS"
+          
+          echo "## PR Status Check" > pr_status.txt
+          echo "" >> pr_status.txt
+          
+          for PR_NUMBER in "${PR_ARRAY[@]}"; do
+            PR_NUMBER=$(echo $PR_NUMBER | xargs)  # Trim whitespace
+            
+            # Check if PR is already merged upstream (avoid # linking)
+            if git log upstream/master --grep="Merge pull request $PR_NUMBER" --oneline | grep -q "$PR_NUMBER"; then
+              echo "Merged upstream: PR $PR_NUMBER" >> pr_status.txt
+            else
+              echo "Pending: PR $PR_NUMBER needs to be merged" >> pr_status.txt
+              echo "$PR_NUMBER" >> prs_to_merge.txt
+            fi
+          done
+          
+          echo "PR Status:"
+          cat pr_status.txt
+      
+      - name: Merge PRs
+        if: steps.merge_upstream.outputs.merge_success == 'true'
+        run: |
+          if [ ! -f "prs_to_merge.txt" ]; then
+            echo "All PRs are already merged upstream!"
+            exit 0
+          fi
+          
+          echo "## Merge Results" > merge_results.txt
+          echo "" >> merge_results.txt
+          
+          while IFS= read -r PR_NUMBER; do
+            echo "Processing PR $PR_NUMBER"
+            
+            # Fetch the PR branch (always fetch latest version)
+            if git fetch upstream pull/$PR_NUMBER/head:pr-$PR_NUMBER; then
+              echo "Fetched PR $PR_NUMBER successfully"
+              
+              # Check if this PR can be merged
+              MERGE_BASE=$(git merge-base HEAD pr-$PR_NUMBER)
+              if git merge-tree $MERGE_BASE HEAD pr-$PR_NUMBER | grep -q '^<<<<<<<'; then
+                echo "Conflicts: PR $PR_NUMBER would cause conflicts - attempting smart resolution" >> merge_results.txt
+                
+                # Try to merge with conflict resolution
+                if git merge pr-$PR_NUMBER --no-ff -m "Merge PR $PR_NUMBER"; then
+                  echo "Success: Merged PR $PR_NUMBER" >> merge_results.txt
+                else
+                  # Handle conflicts with workflow rejection strategy
+                  echo "Resolving conflicts for PR $PR_NUMBER..." 
+                  
+                  # Same protected files list as above
+                  PROTECTED_FILES=(
+                    ".github/workflows/Pull from Upstream and Merge PRs.yml"
+                    ".github/workflows/Reset to Upstream and Merge PRs.yml"
+                    ".github/workflows/Build and Release.yml"
+                  )
+                  
+                  # Get list of conflicted files
+                  CONFLICTED_FILES=$(git diff --name-only --diff-filter=U)
+                  DELETED_IN_HEAD=$(git ls-files --deleted)
+                  
+                  # Resolve conflicts intelligently
+                  for file in $CONFLICTED_FILES; do
+                    IS_PROTECTED=false
+                    IS_DELETED_IN_HEAD=false
+                    IS_WORKFLOW=false
+                    
+                    # Check if this is a workflow file
+                    if [[ "$file" == .github/workflows/* ]]; then
+                      IS_WORKFLOW=true
+                    fi
+                    
+                    for protected in "${PROTECTED_FILES[@]}"; do
+                      if [[ "$file" == "$protected" ]]; then
+                        IS_PROTECTED=true
+                        break
+                      fi
+                    done
+                    
+                    for deleted_file in $DELETED_IN_HEAD; do
+                      if [[ "$file" == "$deleted_file" ]]; then
+                        IS_DELETED_IN_HEAD=true
+                        break
+                      fi
+                    done
+                    
+                    if [[ "$IS_DELETED_IN_HEAD" == true ]]; then
+                      if [[ "$IS_PROTECTED" == true ]]; then
+                        echo "  Modify/delete conflict - keeping file deleted (protected): $file"
+                        git rm "$file" 2>/dev/null || true
+                      elif [[ "$IS_WORKFLOW" == true ]]; then
+                        echo "  Modify/delete conflict - rejecting upstream workflow: $file"
+                        git rm "$file" 2>/dev/null || true
+                      else
+                        echo "  Modify/delete conflict - accepting upstream version: $file"
+                        git add "$file"
+                      fi
+                    elif [[ "$IS_PROTECTED" == true ]]; then
+                      echo "  Protecting file: $file (keeping our version)"
+                      git checkout --ours "$file"
+                      git add "$file"
+                    elif [[ "$IS_WORKFLOW" == true ]]; then
+                      echo "  Rejecting upstream workflow: $file"
+                      git rm "$file" 2>/dev/null || true
+                    else
+                      echo "  Preferring upstream: $file"
+                      git checkout --theirs "$file"
+                      git add "$file"
+                    fi
+                  done
+                  
+                  # Complete the merge
+                  if git commit -m "Merge PR $PR_NUMBER (auto-resolved conflicts)"; then
+                    echo "Success: Merged PR $PR_NUMBER with conflict resolution" >> merge_results.txt
+                  else
+                    echo "Failed: PR $PR_NUMBER (could not resolve conflicts)" >> merge_results.txt
+                    git merge --abort
+                  fi
+                fi
+              else
+                # Try to merge the PR (no conflicts expected)
+                if git merge pr-$PR_NUMBER --no-ff -m "Merge PR $PR_NUMBER"; then
+                  echo "Success: Merged PR $PR_NUMBER (may be already up-to-date)" >> merge_results.txt
+                else
+                  echo "Failed: PR $PR_NUMBER (unexpected error)" >> merge_results.txt
+                  git merge --abort
+                fi
+              fi
+              
+              # Clean up the PR branch
+              git branch -D pr-$PR_NUMBER
+            else
+              echo "Failed: PR $PR_NUMBER (PR may not exist or is closed)" >> merge_results.txt
+            fi
+          done < prs_to_merge.txt
+          
+          echo ""
+          echo "Merge Summary:"
+          cat merge_results.txt
+      
+      - name: Update PR list in workflow file
+        if: steps.merge_upstream.outputs.merge_success == 'true'
+        run: |
+          set +e  # Don't exit on error, we'll handle errors manually
+          
+          echo "Starting PR list update process..."
+          
+          # Read current PR list
+          CURRENT_PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
+          if [ -z "$CURRENT_PR_NUMBERS" ]; then
+            CURRENT_PR_NUMBERS="${{ env.DEFAULT_PR_NUMBERS }}"
+          fi
+          
+          echo "Current PR list: $CURRENT_PR_NUMBERS"
+          
+          # Create array of PRs that are merged UPSTREAM only
+          MERGED_PRS=()
+          
+          # ONLY check for PRs merged upstream, NOT locally merged PRs
+          if [ -f "pr_status.txt" ]; then
+            echo "Checking pr_status.txt for already merged PRs..."
+            # Get PRs that are already merged upstream
+            while IFS= read -r line; do
+              if echo "$line" | grep -q "Merged upstream: PR "; then
+                PR_NUM=$(echo "$line" | grep -oE 'PR [0-9]+' | grep -oE '[0-9]+' || true)
+                if [ -n "$PR_NUM" ]; then
+                  echo "  Found merged upstream: PR $PR_NUM"
+                  MERGED_PRS+=("$PR_NUM")
+                fi
+              fi
+            done < pr_status.txt
+          else
+            echo "No pr_status.txt file found"
+          fi
+          
+          # SKIP checking merge_results.txt - we don't want to remove locally merged PRs
+          # This ensures PRs stay in the list even after we apply them
+          echo "Note: Keeping successfully applied PRs in the list for future updates"
+          
+          echo "Total upstream merged PRs found: ${#MERGED_PRS[@]}"
+          
+          # Only remove PRs that are merged upstream
+          IFS=',' read -ra PR_ARRAY <<< "$CURRENT_PR_NUMBERS"
+          NEW_PR_LIST=""
+          REMOVED_COUNT=0
+          
+          for PR in "${PR_ARRAY[@]}"; do
+            PR=$(echo $PR | xargs)  # Trim whitespace
+            IS_MERGED=false
+            
+            for MERGED_PR in "${MERGED_PRS[@]}"; do
+              if [ "$PR" == "$MERGED_PR" ]; then
+                IS_MERGED=true
+                ((REMOVED_COUNT++))
+                echo "  Will remove PR $PR from list (merged upstream)"
+                break
+              fi
+            done
+            
+            if [ "$IS_MERGED" == "false" ]; then
+              if [ -z "$NEW_PR_LIST" ]; then
+                NEW_PR_LIST="$PR"
+              else
+                NEW_PR_LIST="$NEW_PR_LIST,$PR"
+              fi
+            fi
+          done
+          
+          # Update the workflow file if PRs were removed
+          if [ "$NEW_PR_LIST" != "$CURRENT_PR_NUMBERS" ]; then
+            echo "Updating PR list in workflow file..."
+            echo "Old list: $CURRENT_PR_NUMBERS"
+            echo "New list: $NEW_PR_LIST"
+            echo "Removed $REMOVED_COUNT PR(s) that were merged upstream"
+            
+            # Update the workflow file
+            WORKFLOW_FILE=".github/workflows/Pull from Upstream and Merge PRs.yml"
+            
+            if [ -f "$WORKFLOW_FILE" ]; then
+              # Create a backup
+              cp "$WORKFLOW_FILE" "${WORKFLOW_FILE}.bak"
+              
+              # Update the DEFAULT_PR_NUMBERS line
+              sed -i "s|DEFAULT_PR_NUMBERS: '[^']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
+              
+              # Verify the change was made
+              if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
+                echo "Successfully updated workflow file"
+                echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
+                
+                # Show the updated line
+                grep "DEFAULT_PR_NUMBERS:" "$WORKFLOW_FILE"
+                
+                # Stage the change for commit
+                git add "$WORKFLOW_FILE"
+                
+                # Remove backup
+                rm -f "${WORKFLOW_FILE}.bak"
+              else
+                echo "Error: Failed to update workflow file"
+                echo "Looking for DEFAULT_PR_NUMBERS line:"
+                grep "DEFAULT_PR_NUMBERS:" "$WORKFLOW_FILE" || echo "Line not found!"
+                # Restore from backup
+                mv "${WORKFLOW_FILE}.bak" "$WORKFLOW_FILE"
+                exit 1
+              fi
+            else
+              echo "Warning: Workflow file not found at $WORKFLOW_FILE"
+              echo "Current directory: $(pwd)"
+              echo "Files in .github/workflows/:"
+              ls -la .github/workflows/ || echo "Directory not found"
+              exit 1
+            fi
+          else
+            echo "No upstream-merged PRs to remove from the list"
+          fi
+      
+      - name: Remove unwanted upstream workflow files
+        if: steps.merge_upstream.outputs.merge_success == 'true'
+        run: |
+          # Get list of our workflow files to keep
+          OUR_WORKFLOWS=("Reset to Upstream and Merge PRs.yml" "Build and Release.yml" "Pull from Upstream and Merge PRs.yml")
+          
+          # Find and remove upstream workflow files
+          REMOVED_FILES=0
+          for file in .github/workflows/*.yml .github/workflows/*.yaml; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              
+              # Check if this file should be kept
+              KEEP_FILE=false
+              for keeper in "${OUR_WORKFLOWS[@]}"; do
+                if [ "$filename" == "$keeper" ]; then
+                  KEEP_FILE=true
+                  break
+                fi
+              done
+              
+              if [ "$KEEP_FILE" == "false" ]; then
+                echo "Removing upstream workflow: $filename"
+                rm -f "$file"
+                ((REMOVED_FILES++))
+              fi
+            fi
+          done
+          
+          # Commit if files were removed
+          if [ $REMOVED_FILES -gt 0 ]; then
+            git add .github/workflows
+            git commit -m "Remove $REMOVED_FILES upstream workflow file(s)"
+          fi
+      
+      - name: Push changes
+        if: steps.merge_upstream.outputs.merge_success == 'true'
+        run: |
+          rm -f pr_status.txt merge_results.txt prs_to_merge.txt conflict_files.txt
+          # Check if we have any uncommitted changes (workflow file update)
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto-update PR list: removed PRs merged upstream"
+          fi
+          
+          # Push all changes
+          git push origin master
+      
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.merge_upstream.outputs.merge_success }}" == "true" ]; then
+            echo "✅ Successfully merged from upstream" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Failed to merge from upstream due to conflicts" >> $GITHUB_STEP_SUMMARY
+            
+            if [ -f "conflict_files.txt" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              cat conflict_files.txt >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "pr_status.txt" ]; then
+            cat pr_status.txt >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f "merge_results.txt" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat merge_results.txt >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Add info about PR list updates
+          if [ -n "${{ env.PR_LIST_UPDATED }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## PR List Update" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Automatically removed PRs that were merged upstream from the workflow file" >> $GITHUB_STEP_SUMMARY
+          fi
+      
+      - name: Send Discord notification on failure
+        uses: Ilshidur/action-discord@master
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            ❌ Merge from upstream failed!
+            Reason: ${{ steps.merge_upstream.outputs.merge_success == 'false' && 'Merge conflicts' || 'Unknown error' }}
+            ${{ env.CONFLICT_COUNT && format('Conflicts in {0} files: {1}', env.CONFLICT_COUNT, env.CONFLICT_FILES) || '' }}
+            PRs attempted: ${{ github.event.inputs.pr_numbers || env.DEFAULT_PR_NUMBERS }}
+            See workflow logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+      - name: Send Discord notification on success
+        uses: Ilshidur/action-discord@master
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            ✅ Successfully synced with upstream!
+            ${{ env.PR_LIST_UPDATED && '📝 PR list auto-updated - PRs merged upstream were removed' || '' }}
+            Check the summary: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      
+      - name: Upload conflict information
+        if: failure() && steps.merge_upstream.outputs.merge_success == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-conflicts
+          path: conflict_files.txt
+          retention-days: 7            
             # Show detailed conflict info
             echo ""
             echo "## Conflict Details:"
