@@ -116,7 +116,13 @@ jobs:
             done
             
             # Check if auto-resolve is enabled
-            if [ "${{ github.event.inputs.auto_resolve_conflicts }}" == "true" ]; then
+            # Default to true for scheduled runs, use input value for manual runs
+            AUTO_RESOLVE="${{ github.event.inputs.auto_resolve_conflicts }}"
+            if [ -z "$AUTO_RESOLVE" ] && [ "${{ github.event_name }}" == "schedule" ]; then
+              AUTO_RESOLVE="true"
+            fi
+            
+            if [ "$AUTO_RESOLVE" == "true" ]; then
               echo ""
               echo "Auto-resolving conflicts with workflow rejection strategy..."
               
@@ -438,10 +444,10 @@ jobs:
               cp "$WORKFLOW_FILE" "${WORKFLOW_FILE}.bak"
               
               # Update the DEFAULT_PR_NUMBERS line (fixed regex pattern)
-              sed -i "s|DEFAULT_PR_NUMBERS: '']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
+              sed -i "s|DEFAULT_PR_NUMBERS: '[^']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
               
               # Verify the change was made
-              if grep -q "DEFAULT_PR_NUMBERS: ''" "$WORKFLOW_FILE"; then
+              if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
                 echo "Successfully updated workflow file"
                 echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
                 
