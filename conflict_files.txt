@@ -1,0 +1,5 @@
+## Conflicted Files:
+.github/workflows/__codeql.yml
+.github/workflows/__package.yml
+.github/workflows/__quality_checks.yml
+.github/workflows/pull_request.yml

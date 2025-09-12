@@ -425,7 +425,7 @@ class ArchiveSource {
         files = files.filter((file) => {
             const name = file.file.name;
             const index = name.lastIndexOf('.');
-            return index !== -1 && IMAGE_FORMATS.includes(name.slice(index + 1));
+            return index !== -1 && IMAGE_FORMATS.includes(name.slice(index + 1).toLowerCase());
         });
 
         // Sorting pages naturally, first folders, then filenames
