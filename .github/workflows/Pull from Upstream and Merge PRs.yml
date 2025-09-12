@@ -81,122 +81,122 @@ jobs:
           echo "Fetched latest changes from all remotes"
       
       - name: Merge upstream
-              id: merge_upstream
-              run: |
-                echo "Current branch: $(git branch --show-current)"
-                echo "Current commit: $(git rev-parse HEAD)"
+        id: merge_upstream
+        run: |
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit: $(git rev-parse HEAD)"
+          
+          # Try to merge upstream changes
+          if git merge upstream/master -m "Merge upstream changes from jellyfin/jellyfin-web"; then
+            echo "Successfully merged upstream changes"
+            echo "merge_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "Merge conflicts detected!"
+            echo "merge_success=false" >> $GITHUB_OUTPUT
+            
+            # Get list of conflicted files
+            echo "## Conflicted Files:" | tee conflict_files.txt
+            git diff --name-only --diff-filter=U | tee -a conflict_files.txt
+            
+            # Check if conflicts are only in workflow files
+            WORKFLOW_CONFLICTS=$(git diff --name-only --diff-filter=U | grep "^\.github/workflows/" || true)
+            NON_WORKFLOW_CONFLICTS=$(git diff --name-only --diff-filter=U | grep -v "^\.github/workflows/" || true)
+            
+            if [ -n "$WORKFLOW_CONFLICTS" ] && [ -z "$NON_WORKFLOW_CONFLICTS" ]; then
+              echo ""
+              echo "All conflicts are in workflow files - removing upstream workflows..."
+              
+              # Remove all conflicted workflow files (we don't want them)
+              git diff --name-only --diff-filter=U | grep "^\.github/workflows/" | xargs -r rm -f
+              
+              # Mark all changes as resolved and complete the merge
+              git add .
+              git commit -m "Merge upstream changes from jellyfin/jellyfin-web (removed upstream workflows)"
+              echo "Successfully resolved workflow conflicts by removing upstream workflows"
+              echo "merge_success=true" >> $GITHUB_OUTPUT
+              
+            elif [ -n "$WORKFLOW_CONFLICTS" ] && [ -n "$NON_WORKFLOW_CONFLICTS" ]; then
+              echo ""
+              echo "Mixed conflicts detected - resolving workflow conflicts and handling others..."
+              
+              # Remove conflicted workflow files
+              git diff --name-only --diff-filter=U | grep "^\.github/workflows/" | xargs -r rm -f
+              
+              # Now handle remaining conflicts
+              REMAINING_CONFLICTS=$(git diff --name-only --diff-filter=U | grep -v "^\.github/workflows/" || true)
+              
+              if [ -n "$REMAINING_CONFLICTS" ]; then
+                # Save conflict summary for Discord notification
+                CONFLICT_COUNT=$(echo "$REMAINING_CONFLICTS" | wc -l)
+                CONFLICT_FILES=$(echo "$REMAINING_CONFLICTS" | head -5 | tr '\n' ',' | sed 's/,$//')
+                echo "CONFLICT_COUNT=${CONFLICT_COUNT}" >> $GITHUB_ENV
+                echo "CONFLICT_FILES=${CONFLICT_FILES}" >> $GITHUB_ENV
                 
-                # Try to merge upstream changes
-                if git merge upstream/master -m "Merge upstream changes from jellyfin/jellyfin-web"; then
-                  echo "Successfully merged upstream changes"
+                # Show detailed conflict info for non-workflow files
+                echo ""
+                echo "## Remaining Conflict Details:"
+                for file in $REMAINING_CONFLICTS; do
+                  echo "### File: $file"
+                  echo "Conflicts in file:"
+                  grep -n "^<<<<<<< " "$file" 2>/dev/null | cut -d: -f1 | while read line; do
+                    echo "  - Line $line"
+                  done || echo "  - Unable to parse conflict markers"
+                done
+                
+                # Check if auto-resolve is enabled for remaining conflicts
+                if [ "${{ github.event.inputs.auto_resolve_conflicts }}" == "true" ]; then
+                  echo ""
+                  echo "Auto-resolving remaining conflicts in favor of our version (HEAD)..."
+                  echo "$REMAINING_CONFLICTS" | xargs -r git checkout --ours
+                  git add .
+                  git commit -m "Merge upstream changes (removed workflows, auto-resolved conflicts)"
                   echo "merge_success=true" >> $GITHUB_OUTPUT
                 else
-                  echo "Merge conflicts detected!"
-                  echo "merge_success=false" >> $GITHUB_OUTPUT
-                  
-                  # Get list of conflicted files
-                  echo "## Conflicted Files:" | tee conflict_files.txt
-                  git diff --name-only --diff-filter=U | tee -a conflict_files.txt
-                  
-                  # Check if conflicts are only in workflow files
-                  WORKFLOW_CONFLICTS=$(git diff --name-only --diff-filter=U | grep "^\.github/workflows/" || true)
-                  NON_WORKFLOW_CONFLICTS=$(git diff --name-only --diff-filter=U | grep -v "^\.github/workflows/" || true)
-                  
-                  if [ -n "$WORKFLOW_CONFLICTS" ] && [ -z "$NON_WORKFLOW_CONFLICTS" ]; then
-                    echo ""
-                    echo "All conflicts are in workflow files - removing upstream workflows..."
-                    
-                    # Remove all conflicted workflow files (we don't want them)
-                    git diff --name-only --diff-filter=U | grep "^\.github/workflows/" | xargs -r rm -f
-                    
-                    # Mark all changes as resolved and complete the merge
-                    git add .
-                    git commit -m "Merge upstream changes from jellyfin/jellyfin-web (removed upstream workflows)"
-                    echo "Successfully resolved workflow conflicts by removing upstream workflows"
-                    echo "merge_success=true" >> $GITHUB_OUTPUT
-                    
-                  elif [ -n "$WORKFLOW_CONFLICTS" ] && [ -n "$NON_WORKFLOW_CONFLICTS" ]; then
-                    echo ""
-                    echo "Mixed conflicts detected - resolving workflow conflicts and handling others..."
-                    
-                    # Remove conflicted workflow files
-                    git diff --name-only --diff-filter=U | grep "^\.github/workflows/" | xargs -r rm -f
-                    
-                    # Now handle remaining conflicts
-                    REMAINING_CONFLICTS=$(git diff --name-only --diff-filter=U | grep -v "^\.github/workflows/" || true)
-                    
-                    if [ -n "$REMAINING_CONFLICTS" ]; then
-                      # Save conflict summary for Discord notification
-                      CONFLICT_COUNT=$(echo "$REMAINING_CONFLICTS" | wc -l)
-                      CONFLICT_FILES=$(echo "$REMAINING_CONFLICTS" | head -5 | tr '\n' ',' | sed 's/,$//')
-                      echo "CONFLICT_COUNT=${CONFLICT_COUNT}" >> $GITHUB_ENV
-                      echo "CONFLICT_FILES=${CONFLICT_FILES}" >> $GITHUB_ENV
-                      
-                      # Show detailed conflict info for non-workflow files
-                      echo ""
-                      echo "## Remaining Conflict Details:"
-                      for file in $REMAINING_CONFLICTS; do
-                        echo "### File: $file"
-                        echo "Conflicts in file:"
-                        grep -n "^<<<<<<< " "$file" 2>/dev/null | cut -d: -f1 | while read line; do
-                          echo "  - Line $line"
-                        done || echo "  - Unable to parse conflict markers"
-                      done
-                      
-                      # Check if auto-resolve is enabled for remaining conflicts
-                      if [ "${{ github.event.inputs.auto_resolve_conflicts }}" == "true" ]; then
-                        echo ""
-                        echo "Auto-resolving remaining conflicts in favor of our version (HEAD)..."
-                        echo "$REMAINING_CONFLICTS" | xargs -r git checkout --ours
-                        git add .
-                        git commit -m "Merge upstream changes (removed workflows, auto-resolved conflicts)"
-                        echo "merge_success=true" >> $GITHUB_OUTPUT
-                      else
-                        # Abort the merge if not auto-resolving
-                        git merge --abort
-                        exit 1
-                      fi
-                    else
-                      # All conflicts were workflow files, already resolved
-                      git add .
-                      git commit -m "Merge upstream changes from jellyfin/jellyfin-web (removed upstream workflows)"
-                      echo "merge_success=true" >> $GITHUB_OUTPUT
-                    fi
-                    
-                  else
-                    # No workflow conflicts, handle normally
-                    # Save conflict summary for Discord notification
-                    CONFLICT_COUNT=$(git diff --name-only --diff-filter=U | wc -l)
-                    CONFLICT_FILES=$(git diff --name-only --diff-filter=U | head -5 | tr '\n' ',' | sed 's/,$//')
-                    echo "CONFLICT_COUNT=${CONFLICT_COUNT}" >> $GITHUB_ENV
-                    echo "CONFLICT_FILES=${CONFLICT_FILES}" >> $GITHUB_ENV
-                    
-                    # Show detailed conflict info
-                    echo ""
-                    echo "## Conflict Details:"
-                    for file in $(git diff --name-only --diff-filter=U); do
-                      echo "### File: $file"
-                      echo "Conflicts in file:"
-                      grep -n "^<<<<<<< " "$file" 2>/dev/null | cut -d: -f1 | while read line; do
-                        echo "  - Line $line"
-                      done || echo "  - Unable to parse conflict markers"
-                    done
-                    
-                    # Check if auto-resolve is enabled
-                    if [ "${{ github.event.inputs.auto_resolve_conflicts }}" == "true" ]; then
-                      echo ""
-                      echo "Auto-resolving conflicts in favor of our version (HEAD)..."
-                      git diff --name-only --diff-filter=U | xargs -r git checkout --ours
-                      git add .
-                      git commit -m "Auto-resolved conflicts in favor of our version"
-                      echo "merge_success=true" >> $GITHUB_OUTPUT
-                    else
-                      # Abort the merge if not auto-resolving
-                      git merge --abort
-                      exit 1
-                    fi
-                  fi
+                  # Abort the merge if not auto-resolving
+                  git merge --abort
+                  exit 1
                 fi
+              else
+                # All conflicts were workflow files, already resolved
+                git add .
+                git commit -m "Merge upstream changes from jellyfin/jellyfin-web (removed upstream workflows)"
+                echo "merge_success=true" >> $GITHUB_OUTPUT
+              fi
+              
+            else
+              # No workflow conflicts, handle normally
+              # Save conflict summary for Discord notification
+              CONFLICT_COUNT=$(git diff --name-only --diff-filter=U | wc -l)
+              CONFLICT_FILES=$(git diff --name-only --diff-filter=U | head -5 | tr '\n' ',' | sed 's/,$//')
+              echo "CONFLICT_COUNT=${CONFLICT_COUNT}" >> $GITHUB_ENV
+              echo "CONFLICT_FILES=${CONFLICT_FILES}" >> $GITHUB_ENV
+              
+              # Show detailed conflict info
+              echo ""
+              echo "## Conflict Details:"
+              for file in $(git diff --name-only --diff-filter=U); do
+                echo "### File: $file"
+                echo "Conflicts in file:"
+                grep -n "^<<<<<<< " "$file" 2>/dev/null | cut -d: -f1 | while read line; do
+                  echo "  - Line $line"
+                done || echo "  - Unable to parse conflict markers"
+              done
+              
+              # Check if auto-resolve is enabled
+              if [ "${{ github.event.inputs.auto_resolve_conflicts }}" == "true" ]; then
+                echo ""
+                echo "Auto-resolving conflicts in favor of our version (HEAD)..."
+                git diff --name-only --diff-filter=U | xargs -r git checkout --ours
+                git add .
+                git commit -m "Auto-resolved conflicts in favor of our version"
+                echo "merge_success=true" >> $GITHUB_OUTPUT
+              else
+                # Abort the merge if not auto-resolving
+                git merge --abort
+                exit 1
+              fi
+            fi
+          fi
       
       - name: Check for already merged PRs
         if: steps.merge_upstream.outputs.merge_success == 'true'
@@ -366,10 +366,10 @@ jobs:
               
               # Update the DEFAULT_PR_NUMBERS line
               # Use a more specific pattern to avoid issues
-              sed -i "s|DEFAULT_PR_NUMBERS: '6824,6969']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
+              sed -i "s|DEFAULT_PR_NUMBERS: '[^']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
               
               # Verify the change was made
-              if grep -q "DEFAULT_PR_NUMBERS: '6824,6969'" "$WORKFLOW_FILE"; then
+              if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
                 echo "Successfully updated workflow file"
                 echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
                 
