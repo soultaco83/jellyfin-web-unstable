@@ -289,7 +289,7 @@ function onPlaybackStart() {
     }
 }
 
-function onPlaybackStop(e, stopInfo) {
+function onPlaybackStop(_e, stopInfo) {
     if (stopInfo.nextMediaType != 'Audio') {
         headerAudioPlayerButton.classList.add('hide');
     }
@@ -847,11 +847,11 @@ pageClassOn('pageshow', 'page', function (e) {
     updateLibraryNavLinks(page);
 });
 
-Events.on(ServerConnections, 'apiclientcreated', (e, newApiClient) => {
+Events.on(ServerConnections, 'apiclientcreated', (_e, newApiClient) => {
     fetchServerName(newApiClient);
 });
 
-Events.on(ServerConnections, 'localusersignedin', function (e, user) {
+Events.on(ServerConnections, 'localusersignedin', function (_e, user) {
     const currentApiClient = ServerConnections.getApiClient(user.ServerId);
 
     currentDrawerType = null;

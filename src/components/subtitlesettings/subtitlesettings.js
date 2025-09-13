@@ -38,7 +38,7 @@ function getSubtitleAppearanceObject(context) {
     };
 }
 
-function loadForm(context, user, userSettings, appearanceSettings, apiClient) {
+function loadForm(context, user, appearanceSettings, apiClient) {
     apiClient.getCultures().then(function (allCultures) {
         if (appHost.supports('subtitleburnsettings') && user.Policy.EnableVideoPlaybackTranscoding) {
             context.querySelector('.fldBurnIn').classList.remove('hide');
@@ -296,7 +296,7 @@ export class SubtitleSettings {
 
                 const appearanceSettings = userSettings.getSubtitleAppearanceSettings(self.options.appearanceKey);
 
-                loadForm(context, user, userSettings, appearanceSettings, apiClient);
+                loadForm(context, user, appearanceSettings, apiClient);
             });
         });
     }
