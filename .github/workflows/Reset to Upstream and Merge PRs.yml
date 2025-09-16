@@ -234,14 +234,14 @@ jobs:
             
             # Check if PR is already merged upstream
             if git log upstream/master --grep="Merge pull request #$PR_NUMBER" --oneline | grep -q "$PR_NUMBER"; then
-              echo "✅ PR #$PR_NUMBER is already merged upstream" >> pr_status.txt
+              echo "✅ PR $PR_NUMBER is already merged upstream" >> pr_status.txt
               if [ -z "$MERGED_UPSTREAM_PRS" ]; then
                 MERGED_UPSTREAM_PRS="$PR_NUMBER"
               else
                 MERGED_UPSTREAM_PRS="$MERGED_UPSTREAM_PRS,$PR_NUMBER"
               fi
             else
-              echo "⭕ PR #$PR_NUMBER needs to be merged" >> pr_status.txt
+              echo "⭕ PR $PR_NUMBER needs to be merged" >> pr_status.txt
               echo "$PR_NUMBER" >> prs_to_merge.txt
               if [ -z "$UNMERGED_PRS" ]; then
                 UNMERGED_PRS="$PR_NUMBER"
@@ -283,7 +283,7 @@ jobs:
                 PR=$(echo "$pair" | cut -d':' -f1 | xargs)
                 STRATEGY=$(echo "$pair" | cut -d':' -f2 | xargs)
                 PR_STRATEGIES[$PR]=$STRATEGY
-                echo "  PR #$PR: $STRATEGY"
+                echo "  PR $PR: $STRATEGY"
               fi
             done
           fi
@@ -301,13 +301,13 @@ jobs:
                 # Determine conflict resolution strategy for this PR
                 STRATEGY="${PR_STRATEGIES[$PR_NUMBER]:-${{ github.event.inputs.conflict_resolution_strategy || 'auto-head' }}}"
                 
-                echo "⚠️ PR #$PR_NUMBER has conflicts - using strategy: $STRATEGY" >> merge_results.txt
+                echo "⚠️ PR $PR_NUMBER has conflicts - using strategy: $STRATEGY" >> merge_results.txt
                 
                 case $STRATEGY in
                   "auto-head")
                     echo "Attempting merge with auto-resolution (favoring HEAD/our version)..."
-                    if git merge pr-$PR_NUMBER --no-ff -m "Merge PR #$PR_NUMBER (auto-resolved conflicts favoring HEAD)"; then
-                      echo "✅ Merged PR #$PR_NUMBER successfully (auto-resolved conflicts)" >> merge_results.txt
+                    if git merge pr-$PR_NUMBER --no-ff -m "Merge PR $PR_NUMBER from upstream (auto-resolved conflicts favoring HEAD)"; then
+                      echo "✅ Merged PR $PR_NUMBER successfully (auto-resolved conflicts)" >> merge_results.txt
                       
                       if [ -z "$NEWLY_MERGED_PRS" ]; then
                         NEWLY_MERGED_PRS="$PR_NUMBER"
@@ -321,8 +321,8 @@ jobs:
                       echo "Auto-merge failed, resolving conflicts manually (HEAD wins)..."
                       git checkout --ours .
                       git add .
-                      git commit -m "Merge PR #$PR_NUMBER (resolved conflicts favoring HEAD)"
-                      echo "✅ Merged PR #$PR_NUMBER with manual conflict resolution (HEAD wins)" >> merge_results.txt
+                      git commit -m "Merge PR $PR_NUMBER from upstream (resolved conflicts favoring HEAD)"
+                      echo "✅ Merged PR $PR_NUMBER with manual conflict resolution (HEAD wins)" >> merge_results.txt
                       
                       if [ -z "$NEWLY_MERGED_PRS" ]; then
                         NEWLY_MERGED_PRS="$PR_NUMBER"
@@ -335,8 +335,8 @@ jobs:
                     ;;
                   "auto-pr")
                     echo "Attempting merge with auto-resolution (favoring PR version)..."
-                    if git merge pr-$PR_NUMBER --no-ff -m "Merge PR #$PR_NUMBER (auto-resolved conflicts favoring PR)"; then
-                      echo "✅ Merged PR #$PR_NUMBER successfully (auto-resolved conflicts)" >> merge_results.txt
+                    if git merge pr-$PR_NUMBER --no-ff -m "Merge PR $PR_NUMBER from upstream (auto-resolved conflicts favoring PR)"; then
+                      echo "✅ Merged PR $PR_NUMBER successfully (auto-resolved conflicts)" >> merge_results.txt
                       
                       if [ -z "$NEWLY_MERGED_PRS" ]; then
                         NEWLY_MERGED_PRS="$PR_NUMBER"
@@ -350,8 +350,8 @@ jobs:
                       echo "Auto-merge failed, resolving conflicts manually (PR wins)..."
                       git checkout --theirs .
                       git add .
-                      git commit -m "Merge PR #$PR_NUMBER (resolved conflicts favoring PR)"
-                      echo "✅ Merged PR #$PR_NUMBER with manual conflict resolution (PR wins)" >> merge_results.txt
+                      git commit -m "Merge PR $PR_NUMBER from upstream (resolved conflicts favoring PR)"
+                      echo "✅ Merged PR $PR_NUMBER with manual conflict resolution (PR wins)" >> merge_results.txt
                       
                       if [ -z "$NEWLY_MERGED_PRS" ]; then
                         NEWLY_MERGED_PRS="$PR_NUMBER"
@@ -363,18 +363,18 @@ jobs:
                     fi
                     ;;
                   "skip")
-                    echo "⏭️ Skipping PR #$PR_NUMBER due to conflicts (strategy: skip)" >> merge_results.txt
+                    echo "⏭️ Skipping PR $PR_NUMBER due to conflicts (strategy: skip)" >> merge_results.txt
                     git branch -D pr-$PR_NUMBER || true
                     ;;
                   *)
-                    echo "❌ Unknown conflict resolution strategy: $STRATEGY for PR #$PR_NUMBER" >> merge_results.txt
+                    echo "❌ Unknown conflict resolution strategy: $STRATEGY for PR $PR_NUMBER" >> merge_results.txt
                     git branch -D pr-$PR_NUMBER || true
                     ;;
                 esac
               else
                 # No conflicts, merge normally
-                if git merge pr-$PR_NUMBER --no-ff -m "Merge PR #$PR_NUMBER"; then
-                  echo "✅ Merged PR #$PR_NUMBER successfully" >> merge_results.txt
+                if git merge pr-$PR_NUMBER --no-ff -m "Merge PR $PR_NUMBER from upstream"; then
+                  echo "✅ Merged PR $PR_NUMBER successfully" >> merge_results.txt
                   
                   if [ -z "$NEWLY_MERGED_PRS" ]; then
                     NEWLY_MERGED_PRS="$PR_NUMBER"
@@ -385,13 +385,13 @@ jobs:
                   # Clean up the PR branch
                   git branch -D pr-$PR_NUMBER
                 else
-                  echo "❌ Failed to merge PR #$PR_NUMBER (unexpected error)" >> merge_results.txt
+                  echo "❌ Failed to merge PR $PR_NUMBER (unexpected error)" >> merge_results.txt
                   git merge --abort
                   git branch -D pr-$PR_NUMBER || true
                 fi
               fi
             else
-              echo "❌ Failed to fetch PR #$PR_NUMBER (PR may not exist or is closed)" >> merge_results.txt
+              echo "❌ Failed to fetch PR $PR_NUMBER (PR may not exist or is closed)" >> merge_results.txt
             fi
           done < prs_to_merge.txt
           
@@ -468,7 +468,7 @@ jobs:
             for PR_NUMBER in "${PR_ARRAY[@]}"; do
               # Trim whitespace
               PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
-              echo "- https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER" >> /tmp/pr_section.md
+              echo "- Upstream PR $PR_NUMBER" >> /tmp/pr_section.md
             done
 
             if [ -n "$RECENT_MERGED_PRS" ]; then
@@ -481,7 +481,7 @@ jobs:
                 PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
                 # Get the merge date for display
                 MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
-                echo "- ~~https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER~~ (merged upstream on $MERGE_DATE)" >> /tmp/pr_section.md
+                echo "- ~~Upstream PR $PR_NUMBER~~ (merged upstream on $MERGE_DATE)" >> /tmp/pr_section.md
               done
             fi
           else
@@ -498,7 +498,7 @@ jobs:
                 PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
                 # Get the merge date for display
                 MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
-                echo "- ~~https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER~~ (merged upstream on $MERGE_DATE)" >> /tmp/pr_section.md
+                echo "- ~~Upstream PR $PR_NUMBER~~ (merged upstream on $MERGE_DATE)" >> /tmp/pr_section.md
               done
             fi
           fi
@@ -576,10 +576,10 @@ jobs:
             echo "Checking pr_status.txt for already merged PRs..."
             # Get PRs that are already merged upstream
             while IFS= read -r line; do
-              if echo "$line" | grep -q "✅ PR #"; then
-                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#' || true)
+              if echo "$line" | grep -q "✅ PR "; then
+                PR_NUM=$(echo "$line" | grep -oE 'PR [0-9]+' | grep -oE '[0-9]+' || true)
                 if [ -n "$PR_NUM" ]; then
-                  echo "  Found merged upstream: PR #$PR_NUM"
+                  echo "  Found merged upstream: PR $PR_NUM"
                   MERGED_PRS+=("$PR_NUM")
                 fi
               fi
@@ -592,10 +592,10 @@ jobs:
             echo "Checking merge_results.txt for newly merged PRs..."
             # Get PRs we successfully merged
             while IFS= read -r line; do
-              if echo "$line" | grep -q "✅ Merged PR #"; then
-                PR_NUM=$(echo "$line" | grep -oE '#[0-9]+' | tr -d '#' || true)
+              if echo "$line" | grep -q "✅ Merged PR "; then
+                PR_NUM=$(echo "$line" | grep -oE 'PR [0-9]+' | grep -oE '[0-9]+' || true)
                 if [ -n "$PR_NUM" ]; then
-                  echo "  Found newly merged: PR #$PR_NUM"
+                  echo "  Found newly merged: PR $PR_NUM"
                   MERGED_PRS+=("$PR_NUM")
                 fi
               fi
@@ -619,7 +619,7 @@ jobs:
               if [ "$PR" == "$MERGED_PR" ]; then
                 IS_MERGED=true
                 ((REMOVED_COUNT++))
-                echo "  Will remove PR #$PR from list"
+                echo "  Will remove PR $PR from list"
                 break
               fi
             done
@@ -649,10 +649,10 @@ jobs:
 
               # Update the DEFAULT_PR_NUMBERS line
               # Use a more specific pattern to avoid issues
-              sed -i "s|DEFAULT_PR_NUMBERS: '']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
+              sed -i "s|DEFAULT_PR_NUMBERS: '.*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
 
               # Verify the change was made
-              if grep -q "DEFAULT_PR_NUMBERS: ''" "$WORKFLOW_FILE"; then
+              if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
                 echo "Successfully updated workflow file"
                 echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
 
