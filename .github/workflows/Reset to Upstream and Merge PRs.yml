@@ -315,10 +315,8 @@ jobs:
           echo "Newly merged: $NEWLY_MERGED_PRS"
 
           # Create a temporary file for the PR section
-          cat > /tmp/pr_section.md << 'EOF'
-## Currently Installed PRs
-
-EOF
+          echo "## Currently Installed PRs" > /tmp/pr_section.md
+          echo "" >> /tmp/pr_section.md
 
           if [ -n "$UNMERGED_PRS" ]; then
             echo "The following PRs are automatically merged into this fork:" >> /tmp/pr_section.md
