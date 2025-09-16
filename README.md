@@ -1,6 +1,14 @@
 <h1 align="center">Jellyfin Web</h1>
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 
+## Currently Installed PRs
+
+The following PRs are automatically merged into this fork:
+
+- https://github.com/jellyfin/jellyfin-web/pull/5011
+- https://github.com/jellyfin/jellyfin-web/pull/7077
+
+---
 ---
 
 <p align="center">
