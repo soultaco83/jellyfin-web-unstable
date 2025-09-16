@@ -10,6 +10,14 @@ The following PRs are automatically merged into this fork:
 
 ---
 ---
+## Changes I have made
+
+-created a plugin called https://github.com/soultaco83/Jellyfin_requests_plugin which with this web change it adds a tab called requests. Where the admin can go to plugins and set any site that supports Iframes. 
+-By default users have Smart Subtitles selected
+-Subtitles will Burnin for all users (this is because there is an issue with subtitles frequently getting out of sync)
+
+---
+---
 
 <p align="center">
 <img alt="Logo Banner" src="https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/banner-logo-solid.svg?sanitize=true"/>
