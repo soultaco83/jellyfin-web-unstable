@@ -1,4 +1,4 @@
-name: Reset to Upstream and Merge PRs
+name: Pull from Upstream and Merge PRs
 
 on:
   schedule:
@@ -22,9 +22,9 @@ env:
   # Default PR numbers to use for both scheduled and manual runs (if not specified)
   # This list is automatically updated - merged PRs are removed after successful runs
   # To add new PRs: edit this line and add the PR numbers to the list
-  DEFAULT_PR_NUMBERS: ''
+  DEFAULT_PR_NUMBERS: '5011,7077'
   # Token for authentication
-  GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN || github.token }}
+  GH_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
 
 jobs:
   pull-and-merge:
@@ -44,8 +44,8 @@ jobs:
           if [ -n "${{ secrets.PAT_TOKEN }}" ]; then
             echo "✅ PAT_TOKEN is configured"
           else
-            echo "⚠️ PAT_TOKEN not found, using default GITHUB_TOKEN"
-            echo "Note: Without PAT_TOKEN, the workflow cannot update itself"
+            echo "✅ Using default GITHUB_TOKEN"
+            echo "Note: For workflow self-updating, set up PAT_TOKEN secret"
           fi
       
       - name: Configure Git
@@ -495,7 +495,7 @@ jobs:
             echo "Removed $REMOVED_COUNT merged PR(s)"
 
             # Update the workflow file
-            WORKFLOW_FILE=".github/workflows/Reset to Upstream and Merge PRs.yml"
+            WORKFLOW_FILE=".github/workflows/Pull from Upstream and Merge PRs.yml"
 
             if [ -f "$WORKFLOW_FILE" ]; then
               # Create a backup
@@ -503,10 +503,10 @@ jobs:
 
               # Update the DEFAULT_PR_NUMBERS line
               # Use a more specific pattern to avoid issues
-              sed -i "s|DEFAULT_PR_NUMBERS: '']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
+              sed -i "s|DEFAULT_PR_NUMBERS: '[^']*'|DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'|" "$WORKFLOW_FILE"
 
               # Verify the change was made
-              if grep -q "DEFAULT_PR_NUMBERS: ''" "$WORKFLOW_FILE"; then
+              if grep -q "DEFAULT_PR_NUMBERS: '$NEW_PR_LIST'" "$WORKFLOW_FILE"; then
                 echo "Successfully updated workflow file"
                 echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
 
@@ -541,7 +541,7 @@ jobs:
         if: steps.merge_upstream.outputs.merge_success == 'true'
         run: |
           # Get list of our workflow files to keep
-          OUR_WORKFLOWS=("Reset to Upstream and Merge PRs.yml" "Build and Release.yml" "Reset to Upstream and Merge PRs.yml")
+          OUR_WORKFLOWS=("Reset to Upstream and Merge PRs.yml" "Build and Release.yml" "Pull from Upstream and Merge PRs.yml")
           
           # Find and remove upstream workflow files
           REMOVED_FILES=0
