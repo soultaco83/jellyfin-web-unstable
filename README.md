@@ -2,6 +2,11 @@
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 ## Currently Installed PRs
 
+🎉 All PRs have been merged upstream! This fork is now clean and matches the upstream Jellyfin Web repository.
+
+
+---
+
 The following PRs are automatically merged into this fork:
 
 - https://github.com/jellyfin/jellyfin-web/pull/5011
