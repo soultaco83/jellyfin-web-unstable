@@ -1,4 +1,4 @@
-name: Pull from Upstream and Merge PRs
+name: Reset to Upstream and Merge PRs
 
 on:
   schedule:
@@ -415,6 +415,47 @@ jobs:
           echo "Still unmerged: $UNMERGED_PRS"
           echo "Newly merged: $NEWLY_MERGED_PRS"
 
+          # Load existing merged PR timestamps or create new file
+          MERGED_PRS_FILE=".github/merged_prs_timestamps.json"
+          if [ -f "$MERGED_PRS_FILE" ]; then
+            echo "Loading existing merged PR timestamps..."
+          else
+            echo "Creating new merged PR timestamps file..."
+            echo "{}" > "$MERGED_PRS_FILE"
+          fi
+
+          # Add current timestamp for newly merged PRs
+          CURRENT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          if [ -n "$MERGED_UPSTREAM_PRS" ]; then
+            echo "Recording merge timestamps for upstream PRs: $MERGED_UPSTREAM_PRS"
+            IFS=',' read -ra MERGED_ARRAY <<< "$MERGED_UPSTREAM_PRS"
+            for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              # Use jq to add/update the timestamp
+              cat "$MERGED_PRS_FILE" | jq --arg pr "$PR_NUMBER" --arg ts "$CURRENT_TIMESTAMP" '. + {($pr): $ts}' > "${MERGED_PRS_FILE}.tmp"
+              mv "${MERGED_PRS_FILE}.tmp" "$MERGED_PRS_FILE"
+            done
+          fi
+
+          # Filter merged PRs to only show those from the last 7 days
+          SEVEN_DAYS_AGO=$(date -u -d '7 days ago' +"%Y-%m-%dT%H:%M:%SZ")
+          RECENT_MERGED_PRS=""
+          
+          # Get PRs merged within the last 7 days
+          if [ -f "$MERGED_PRS_FILE" ]; then
+            echo "Filtering merged PRs to show only those from the last 7 days..."
+            RECENT_PRS=$(cat "$MERGED_PRS_FILE" | jq -r --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | map(.key) | join(",")')
+            if [ "$RECENT_PRS" != "" ] && [ "$RECENT_PRS" != "null" ]; then
+              RECENT_MERGED_PRS="$RECENT_PRS"
+            fi
+            
+            # Clean up old entries from the file (older than 7 days)
+            cat "$MERGED_PRS_FILE" | jq --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | from_entries' > "${MERGED_PRS_FILE}.tmp"
+            mv "${MERGED_PRS_FILE}.tmp" "$MERGED_PRS_FILE"
+          fi
+
+          echo "Recent merged PRs (last 7 days): $RECENT_MERGED_PRS"
+
           # Create a temporary file for the PR section
           echo "## Currently Installed PRs" > /tmp/pr_section.md
           echo "" >> /tmp/pr_section.md
@@ -430,15 +471,17 @@ jobs:
               echo "- https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER" >> /tmp/pr_section.md
             done
 
-            if [ -n "$MERGED_UPSTREAM_PRS" ]; then
+            if [ -n "$RECENT_MERGED_PRS" ]; then
               echo "" >> /tmp/pr_section.md
-              echo "### Recently Merged Upstream" >> /tmp/pr_section.md
+              echo "### Recently Merged Upstream (Last 7 Days)" >> /tmp/pr_section.md
               echo "The following PRs were automatically removed as they have been merged into upstream Jellyfin Web:" >> /tmp/pr_section.md
-              IFS=',' read -ra MERGED_ARRAY <<< "$MERGED_UPSTREAM_PRS"
+              IFS=',' read -ra MERGED_ARRAY <<< "$RECENT_MERGED_PRS"
               for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
                 # Trim whitespace
                 PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
-                echo "- ~~https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER~~ (merged upstream)" >> /tmp/pr_section.md
+                # Get the merge date for display
+                MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER~~ (merged upstream on $MERGE_DATE)" >> /tmp/pr_section.md
               done
             fi
           else
@@ -446,14 +489,16 @@ jobs:
             echo "🎉 All PRs have been merged upstream! This fork is now clean and matches the upstream Jellyfin Web repository." >> /tmp/pr_section.md
             echo "" >> /tmp/pr_section.md
 
-            if [ -n "$MERGED_UPSTREAM_PRS" ]; then
-              echo "### Recently Merged Upstream" >> /tmp/pr_section.md
+            if [ -n "$RECENT_MERGED_PRS" ]; then
+              echo "### Recently Merged Upstream (Last 7 Days)" >> /tmp/pr_section.md
               echo "The following PRs were automatically removed as they have been merged into upstream Jellyfin Web:" >> /tmp/pr_section.md
-              IFS=',' read -ra MERGED_ARRAY <<< "$MERGED_UPSTREAM_PRS"
+              IFS=',' read -ra MERGED_ARRAY <<< "$RECENT_MERGED_PRS"
               for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
                 # Trim whitespace
                 PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
-                echo "- ~~https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER~~ (merged upstream)" >> /tmp/pr_section.md
+                # Get the merge date for display
+                MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER~~ (merged upstream on $MERGE_DATE)" >> /tmp/pr_section.md
               done
             fi
           fi
@@ -500,12 +545,12 @@ jobs:
 
           # Create commit message
           COMMIT_MSG="Update README with current PR list"
-          if [ -n "$MERGED_UPSTREAM_PRS" ]; then
-            COMMIT_MSG="$COMMIT_MSG (removed merged PRs: $MERGED_UPSTREAM_PRS)"
+          if [ -n "$RECENT_MERGED_PRS" ]; then
+            COMMIT_MSG="$COMMIT_MSG (showing recent merges: $RECENT_MERGED_PRS)"
           fi
 
-          # Commit the updated README
-          git add README.md
+          # Commit the updated README and timestamps file
+          git add README.md "$MERGED_PRS_FILE"
           git commit -m "$COMMIT_MSG"
       
       - name: Update PR list in workflow file
