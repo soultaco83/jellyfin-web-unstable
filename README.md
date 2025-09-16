@@ -24,6 +24,9 @@ The following PRs are automatically merged into this fork:
 - Set Prefer fMP4-HLS by default for all users as this helps with media playback
   
 ---
+Check out my server github and docker
+https://github.com/soultaco83/jellyfin-server-unstable
+https://hub.docker.com/r/soultaco83/jellyfin_with_request
 ---
 
 <p align="center">
