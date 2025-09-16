@@ -495,7 +495,7 @@ jobs:
             echo "Removed $REMOVED_COUNT merged PR(s)"
 
             # Update the workflow file
-            WORKFLOW_FILE=".github/workflows/Pull from Upstream and Merge PRs.yml"
+            WORKFLOW_FILE=".github/workflows/Reset to Upstream and Merge PRs.yml"
 
             if [ -f "$WORKFLOW_FILE" ]; then
               # Create a backup
@@ -541,7 +541,7 @@ jobs:
         if: steps.merge_upstream.outputs.merge_success == 'true'
         run: |
           # Get list of our workflow files to keep
-          OUR_WORKFLOWS=("Reset to Upstream and Merge PRs.yml" "Build and Release.yml" "Pull from Upstream and Merge PRs.yml")
+          OUR_WORKFLOWS=("Reset to Upstream and Merge PRs.yml" "Build and Release.yml")
           
           # Find and remove upstream workflow files
           REMOVED_FILES=0
