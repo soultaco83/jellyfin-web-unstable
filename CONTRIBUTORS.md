@@ -102,6 +102,7 @@
 - [Free O'Toole](https://github.com/freeotoole)
 - [TheBosZ](https://github.com/thebosz)
 - [shoecar](https://github.com/shoecar)
+- [johnnyg](https://github.com/johnnyg)
 
 ## Emby Contributors
 
