@@ -1,6 +1,20 @@
 <h1 align="center">Jellyfin Web</h1>
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 
+## Currently Installed PRs
+
+The following PRs are automatically merged into this fork:
+
+- [Upstream PR #5011](https://github.com/jellyfin/jellyfin-web/pull/5011)
+- [Upstream PR #6735](https://github.com/jellyfin/jellyfin-web/pull/6735)
+- [Upstream PR #6919](https://github.com/jellyfin/jellyfin-web/pull/6919)
+- [Upstream PR #6965](https://github.com/jellyfin/jellyfin-web/pull/6965)
+- [Upstream PR #7058](https://github.com/jellyfin/jellyfin-web/pull/7058)
+- [Upstream PR #7090](https://github.com/jellyfin/jellyfin-web/pull/7090)
+- [Upstream PR #7100](https://github.com/jellyfin/jellyfin-web/pull/7100)
+- [Upstream PR #7135](https://github.com/jellyfin/jellyfin-web/pull/7135)
+
+---
 ---
 
 <p align="center">
