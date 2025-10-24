@@ -46,6 +46,8 @@ class HomeView extends TabbedView {
 
             case 1:
                 depends = 'favorites';
+                break;
+
         }
 
         const instance = this;
@@ -63,3 +65,4 @@ class HomeView extends TabbedView {
 }
 
 export default HomeView;
+
