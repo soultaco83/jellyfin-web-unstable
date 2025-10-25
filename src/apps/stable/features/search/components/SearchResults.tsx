@@ -68,7 +68,7 @@ const SearchResults: FC<SearchResultsProps> = ({
             {data.map((section, index) => renderSection(section, index))}
             
             {/* Add Jellyseerr results */}
-            <JellyseerrResults query={query} />
+            <JellyseerrResults query={query || ''} />
         </div>
     );
 };
