@@ -7,6 +7,7 @@ import { CardShape } from 'utils/card';
 import { CollectionType } from '@jellyfin/sdk/lib/generated-client/models/collection-type';
 import { Section } from '../types';
 import { Link } from 'react-router-dom';
+import JellyseerrResults from './JellyseerrResults';
 
 interface SearchResultsProps {
     parentId?: string;
@@ -63,7 +64,11 @@ const SearchResults: FC<SearchResultsProps> = ({
 
     return (
         <div className={'searchResults padded-top padded-bottom-page'}>
+            {/* Your existing Jellyfin search results */}
             {data.map((section, index) => renderSection(section, index))}
+            
+            {/* Add Jellyseerr results */}
+            <JellyseerrResults query={query} />
         </div>
     );
 };
