@@ -1,0 +1,805 @@
+name: Reset to Upstream and Merge PRs
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # Runs at midnight EST sunday
+  workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: 'Comma-separated list of PR numbers to merge'
+        required: false
+        default: ''
+      auto_resolve_conflicts:
+        description: 'Auto-resolve conflicts in favor of our version (HEAD)'
+        required: false
+        type: boolean
+        default: true
+      conflict_resolution_strategy:
+        description: 'How to resolve conflicts: auto-head (our version), auto-pr (PR version), or skip (skip conflicted PRs)'
+        required: false
+        type: choice
+        options:
+          - auto-head
+          - auto-pr
+          - skip
+        default: 'auto-head'
+      pr_specific_strategies:
+        description: 'Per-PR conflict strategies (format: "5011:auto-pr,7077:auto-head") - overrides global strategy'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: read
+
+env:
+  # Default PR numbers to use for both scheduled and manual runs (if not specified)
+  # This list is automatically updated - merged PRs are removed after successful runs
+  # To add new PRs: edit this line and add the PR numbers to the list
+  DEFAULT_PR_NUMBERS: '5011,6735,7058,7090,7100,7355,7391,7410,7414,7419,7431,7445,7453,7455,7461,7463,7469,7470,7471,7477,7478,7487'
+  #
+  # Token for authentication
+  GH_TOKEN: ${{ secrets.PAT_TOKEN || github.token }}
+
+jobs:
+  reset-and-merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ env.GH_TOKEN }}
+          persist-credentials: true
+
+      - name: Verify authentication
+        run: |
+          # Check if PAT_TOKEN is available
+          if [ -n "${{ secrets.PAT_TOKEN }}" ]; then
+            echo "✅ PAT_TOKEN is configured"
+          else
+            echo "✅ Using default GITHUB_TOKEN"
+            echo "Note: For workflow self-updating, set up PAT_TOKEN secret"
+          fi
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "GitHub Action"
+          git config --global user.email "action@github.com"
+          # Set merge strategy to avoid merge commit messages prompts
+          git config pull.rebase false
+
+      - name: Backup workflow files
+        run: |
+          # Backup workflows
+          mkdir -p /tmp/workflows-backup
+          if [ -d ".github/workflows" ]; then
+            cp ".github/workflows/Reset to Upstream and Merge PRs.yml" "/tmp/workflows-backup/Reset to Upstream and Merge PRs.yml" || true
+            # Backup any other custom workflow files
+            cp ".github/workflows/Build and Release.yml" "/tmp/workflows-backup/Build and Release.yml" || true
+          fi
+          
+          # Backup custom patches directory
+          mkdir -p /tmp/patches-backup
+          if [ -d ".github/patches" ]; then
+            cp -r .github/patches/* /tmp/patches-backup/ || true
+          fi
+
+      - name: Add upstream remote
+        run: |
+          # Add upstream without authentication (public repo)
+          git remote add upstream https://github.com/jellyfin/jellyfin-web.git || \
+          git remote set-url upstream https://github.com/jellyfin/jellyfin-web.git
+          
+          # Fix origin URL to include authentication token
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git
+
+      - name: Fetch all remotes
+        run: |
+          echo "Current remotes:"
+          git remote -v
+          
+          echo "Fetching from origin..."
+          git fetch origin
+          
+          echo "Fetching from upstream..."
+          git fetch upstream --prune
+          
+          echo "Fetched latest changes from all remotes"
+
+      - name: Reset to upstream
+        id: reset_upstream
+        run: |
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit: $(git rev-parse HEAD)"
+          
+          # Reset to upstream/master and clean up workflow files
+          git checkout master
+          git reset --hard upstream/master
+
+          # Remove all upstream workflow files
+          if [ -d ".github/workflows" ]; then
+            git rm -rf .github/workflows || true
+            git commit -m "Remove all upstream workflow files" || true
+          fi
+          
+          echo "Successfully reset to upstream"
+          echo "reset_success=true" >> $GITHUB_OUTPUT
+
+      - name: Restore workflow files
+        run: |
+          # Restore workflow files
+          mkdir -p .github/workflows
+          if [ -f "/tmp/workflows-backup/Reset to Upstream and Merge PRs.yml" ]; then
+            cp "/tmp/workflows-backup/Reset to Upstream and Merge PRs.yml" ".github/workflows/"
+            git add ".github/workflows/Reset to Upstream and Merge PRs.yml"
+          fi
+          
+          if [ -f "/tmp/workflows-backup/Build and Release.yml" ]; then
+            cp "/tmp/workflows-backup/Build and Release.yml" ".github/workflows/"
+            git add ".github/workflows/Build and Release.yml"
+          fi
+          
+          # Also commit the patches directory so it persists
+          if [ -d ".github/patches" ]; then
+            git add .github/patches/
+          fi
+                    
+          # Commit restored files if there are changes
+          if ! git diff --cached --quiet; then
+            git commit -m "Restore our workflow files and custom patches after reset"
+          fi
+
+      - name: Check PR status (merged, closed, or open)
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        id: check_pr_status
+        run: |
+          # Use the input PR numbers if provided, otherwise use the default PR numbers
+          PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
+          if [ -z "$PR_NUMBERS" ]; then
+            PR_NUMBERS="${{ env.DEFAULT_PR_NUMBERS }}"
+          fi
+
+          if [ -z "$PR_NUMBERS" ]; then
+            echo "No PRs to process"
+            echo "merged_upstream_prs=" >> $GITHUB_OUTPUT
+            echo "closed_prs=" >> $GITHUB_OUTPUT
+            echo "unmerged_prs=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          IFS=',' read -ra PR_ARRAY <<< "$PR_NUMBERS"
+
+          echo "## PR Status Check" > pr_status.txt
+          echo "" >> pr_status.txt
+
+          MERGED_UPSTREAM_PRS=""
+          CLOSED_PRS=""
+          UNMERGED_PRS=""
+
+          for PR_NUMBER in "${PR_ARRAY[@]}"; do
+            PR_NUMBER=$(echo $PR_NUMBER | xargs)  # Trim whitespace
+
+            # Check if PR is already merged upstream
+            if git log upstream/master --grep="Merge pull request #$PR_NUMBER" --oneline | grep -q "$PR_NUMBER"; then
+              echo "✅ PR $PR_NUMBER is already merged upstream" >> pr_status.txt
+              if [ -z "$MERGED_UPSTREAM_PRS" ]; then
+                MERGED_UPSTREAM_PRS="$PR_NUMBER"
+              else
+                MERGED_UPSTREAM_PRS="$MERGED_UPSTREAM_PRS,$PR_NUMBER"
+              fi
+            else
+              # Check if PR is closed (but not merged) using GitHub CLI
+              echo "Checking PR $PR_NUMBER status via GitHub API..."
+              
+              # Use GitHub CLI to check PR status
+              PR_STATE=$(gh pr view $PR_NUMBER --repo jellyfin/jellyfin-web --json state,merged -q '.state + ":" + (.merged|tostring)' 2>/dev/null || echo "UNKNOWN:false")
+              
+              STATE=$(echo "$PR_STATE" | cut -d':' -f1)
+              IS_MERGED=$(echo "$PR_STATE" | cut -d':' -f2)
+              
+              if [ "$STATE" = "CLOSED" ] && [ "$IS_MERGED" = "false" ]; then
+                echo "❌ PR $PR_NUMBER is closed (not merged)" >> pr_status.txt
+                if [ -z "$CLOSED_PRS" ]; then
+                  CLOSED_PRS="$PR_NUMBER"
+                else
+                  CLOSED_PRS="$CLOSED_PRS,$PR_NUMBER"
+                fi
+              elif [ "$STATE" = "OPEN" ] || [ "$STATE" = "UNKNOWN" ]; then
+                echo "⭕ PR $PR_NUMBER needs to be merged" >> pr_status.txt
+                echo "$PR_NUMBER" >> prs_to_merge.txt
+                if [ -z "$UNMERGED_PRS" ]; then
+                  UNMERGED_PRS="$PR_NUMBER"
+                else
+                  UNMERGED_PRS="$UNMERGED_PRS,$PR_NUMBER"
+                fi
+              fi
+            fi
+          done
+
+          echo "PR Status:"
+          cat pr_status.txt || true
+
+          # Set outputs for README update
+          echo "merged_upstream_prs=$MERGED_UPSTREAM_PRS" >> $GITHUB_OUTPUT
+          echo "closed_prs=$CLOSED_PRS" >> $GITHUB_OUTPUT
+          echo "unmerged_prs=$UNMERGED_PRS" >> $GITHUB_OUTPUT
+
+      - name: Merge PRs
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        id: merge_prs
+        run: |
+          if [ ! -f "prs_to_merge.txt" ]; then
+            echo "All PRs are either merged upstream or closed!"
+            echo "newly_merged_prs=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "## Merge Results" > merge_results.txt
+          echo "" >> merge_results.txt
+
+          NEWLY_MERGED_PRS=""
+          
+          # Parse per-PR strategies if provided
+          declare -A PR_STRATEGIES
+          if [ -n "${{ github.event.inputs.pr_specific_strategies }}" ]; then
+            echo "Parsing per-PR conflict strategies..."
+            IFS=',' read -ra STRATEGY_PAIRS <<< "${{ github.event.inputs.pr_specific_strategies }}"
+            for pair in "${STRATEGY_PAIRS[@]}"; do
+              if [[ $pair == *":"* ]]; then
+                PR=$(echo "$pair" | cut -d':' -f1 | xargs)
+                STRATEGY=$(echo "$pair" | cut -d':' -f2 | xargs)
+                PR_STRATEGIES[$PR]=$STRATEGY
+                echo "  PR $PR: $STRATEGY"
+              fi
+            done
+          fi
+
+          while IFS= read -r PR_NUMBER; do
+            echo "Processing PR $PR_NUMBER"
+
+            # Fetch the PR branch
+            if git fetch upstream pull/$PR_NUMBER/head:pr-$PR_NUMBER; then
+              echo "Fetched PR $PR_NUMBER successfully"
+
+              # Check if this PR can be merged cleanly
+              MERGE_BASE=$(git merge-base HEAD pr-$PR_NUMBER)
+              if git merge-tree $MERGE_BASE HEAD pr-$PR_NUMBER | grep -q '^<<<<<<<'; then
+                # Determine conflict resolution strategy for this PR
+                STRATEGY="${PR_STRATEGIES[$PR_NUMBER]:-${{ github.event.inputs.conflict_resolution_strategy || 'auto-head' }}}"
+                
+                echo "⚠️ PR $PR_NUMBER has conflicts - using strategy: $STRATEGY" >> merge_results.txt
+                
+                case $STRATEGY in
+                  "auto-head")
+                    echo "Attempting merge with auto-resolution (favoring HEAD/our version)..."
+                    if git merge pr-$PR_NUMBER --no-ff -m "Merge upstream changes from PR-$PR_NUMBER"; then
+                      echo "✅ Merged PR $PR_NUMBER successfully (auto-resolved conflicts)" >> merge_results.txt
+                      
+                      if [ -z "$NEWLY_MERGED_PRS" ]; then
+                        NEWLY_MERGED_PRS="$PR_NUMBER"
+                      else
+                        NEWLY_MERGED_PRS="$NEWLY_MERGED_PRS,$PR_NUMBER"
+                      fi
+                      
+                      git branch -D pr-$PR_NUMBER
+                    else
+                      # Merge failed, try manual conflict resolution
+                      echo "Auto-merge failed, resolving conflicts manually (HEAD wins)..."
+                      git checkout --ours .
+                      git add .
+                      git commit -m "Merge upstream changes from PR-$PR_NUMBER (resolved conflicts favoring HEAD)"
+                      echo "✅ Merged PR $PR_NUMBER with manual conflict resolution (HEAD wins)" >> merge_results.txt
+                      
+                      if [ -z "$NEWLY_MERGED_PRS" ]; then
+                        NEWLY_MERGED_PRS="$PR_NUMBER"
+                      else
+                        NEWLY_MERGED_PRS="$NEWLY_MERGED_PRS,$PR_NUMBER"
+                      fi
+                      
+                      git branch -D pr-$PR_NUMBER
+                    fi
+                    ;;
+                  "auto-pr")
+                    echo "Attempting merge with auto-resolution (favoring PR version)..."
+                    if git merge pr-$PR_NUMBER --no-ff -m "Merge upstream changes from PR-$PR_NUMBER (auto-resolved conflicts favoring PR)"; then
+                      echo "✅ Merged PR $PR_NUMBER successfully (auto-resolved conflicts)" >> merge_results.txt
+                      
+                      if [ -z "$NEWLY_MERGED_PRS" ]; then
+                        NEWLY_MERGED_PRS="$PR_NUMBER"
+                      else
+                        NEWLY_MERGED_PRS="$NEWLY_MERGED_PRS,$PR_NUMBER"
+                      fi
+                      
+                      git branch -D pr-$PR_NUMBER
+                    else
+                      # Merge failed, try manual conflict resolution
+                      echo "Auto-merge failed, resolving conflicts manually (PR wins)..."
+                      git checkout --theirs .
+                      git add .
+                      git commit -m "Merge upstream changes from PR-$PR_NUMBER (resolved conflicts favoring PR)"
+                      echo "✅ Merged PR $PR_NUMBER with manual conflict resolution (PR wins)" >> merge_results.txt
+                      
+                      if [ -z "$NEWLY_MERGED_PRS" ]; then
+                        NEWLY_MERGED_PRS="$PR_NUMBER"
+                      else
+                        NEWLY_MERGED_PRS="$NEWLY_MERGED_PRS,$PR_NUMBER"
+                      fi
+                      
+                      git branch -D pr-$PR_NUMBER
+                    fi
+                    ;;
+                  "skip")
+                    echo "⏭️ Skipping PR $PR_NUMBER due to conflicts (strategy: skip)" >> merge_results.txt
+                    git branch -D pr-$PR_NUMBER || true
+                    ;;
+                  *)
+                    echo "❌ Unknown conflict resolution strategy: $STRATEGY for PR $PR_NUMBER" >> merge_results.txt
+                    git branch -D pr-$PR_NUMBER || true
+                    ;;
+                esac
+              else
+                # No conflicts, merge normally
+                if git merge pr-$PR_NUMBER --no-ff -m "Merge upstream changes from PR-$PR_NUMBER"; then
+                  echo "✅ Merged PR $PR_NUMBER successfully" >> merge_results.txt
+
+                  if [ -z "$NEWLY_MERGED_PRS" ]; then
+                    NEWLY_MERGED_PRS="$PR_NUMBER"
+                  else
+                    NEWLY_MERGED_PRS="$NEWLY_MERGED_PRS,$PR_NUMBER"
+                  fi
+
+                  # Clean up the PR branch
+                  git branch -D pr-$PR_NUMBER
+                else
+                  echo "❌ Failed to merge PR $PR_NUMBER (unexpected error)" >> merge_results.txt
+                  git merge --abort
+                  git branch -D pr-$PR_NUMBER || true
+                fi
+              fi
+            else
+              echo "❌ Failed to fetch PR $PR_NUMBER (PR may not exist or is closed)" >> merge_results.txt
+            fi
+          done < prs_to_merge.txt
+
+          echo ""
+          echo "Merge Summary:"
+          cat merge_results.txt
+
+          # Set output for README update
+          echo "newly_merged_prs=$NEWLY_MERGED_PRS" >> $GITHUB_OUTPUT
+
+      - name: Update README with current PR list
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        run: |
+          # Get PR status information
+          MERGED_UPSTREAM_PRS="${{ steps.check_pr_status.outputs.merged_upstream_prs }}"
+          CLOSED_PRS="${{ steps.check_pr_status.outputs.closed_prs }}"
+          UNMERGED_PRS="${{ steps.check_pr_status.outputs.unmerged_prs }}"
+          NEWLY_MERGED_PRS="${{ steps.merge_prs.outputs.newly_merged_prs }}"
+
+          echo "Updating README with current PR status..."
+          echo "Merged upstream: $MERGED_UPSTREAM_PRS"
+          echo "Closed without merge: $CLOSED_PRS"
+          echo "Still unmerged: $UNMERGED_PRS"
+          echo "Newly merged: $NEWLY_MERGED_PRS"
+
+          # Load or create timestamp files
+          MERGED_PRS_FILE=".github/merged_prs_timestamps.json"
+          CLOSED_PRS_FILE=".github/closed_prs_timestamps.json"
+          
+          # Initialize files if they don't exist
+          [ ! -f "$MERGED_PRS_FILE" ] && echo "{}" > "$MERGED_PRS_FILE"
+          [ ! -f "$CLOSED_PRS_FILE" ] && echo "{}" > "$CLOSED_PRS_FILE"
+
+          # Add current timestamp for newly merged/closed PRs
+          CURRENT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          # Record merged PRs
+          if [ -n "$MERGED_UPSTREAM_PRS" ]; then
+            echo "Recording merge timestamps for upstream PRs: $MERGED_UPSTREAM_PRS"
+            IFS=',' read -ra MERGED_ARRAY <<< "$MERGED_UPSTREAM_PRS"
+            for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              cat "$MERGED_PRS_FILE" | jq --arg pr "$PR_NUMBER" --arg ts "$CURRENT_TIMESTAMP" '. + {($pr): $ts}' > "${MERGED_PRS_FILE}.tmp"
+              mv "${MERGED_PRS_FILE}.tmp" "$MERGED_PRS_FILE"
+            done
+          fi
+
+          # Record closed PRs
+          if [ -n "$CLOSED_PRS" ]; then
+            echo "Recording close timestamps for closed PRs: $CLOSED_PRS"
+            IFS=',' read -ra CLOSED_ARRAY <<< "$CLOSED_PRS"
+            for PR_NUMBER in "${CLOSED_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              cat "$CLOSED_PRS_FILE" | jq --arg pr "$PR_NUMBER" --arg ts "$CURRENT_TIMESTAMP" '. + {($pr): $ts}' > "${CLOSED_PRS_FILE}.tmp"
+              mv "${CLOSED_PRS_FILE}.tmp" "$CLOSED_PRS_FILE"
+            done
+          fi
+
+          # Filter to show recent changes (last 7 days)
+          SEVEN_DAYS_AGO=$(date -u -d '7 days ago' +"%Y-%m-%dT%H:%M:%SZ")
+          
+          # Get recently merged PRs
+          RECENT_MERGED_PRS=""
+          if [ -f "$MERGED_PRS_FILE" ]; then
+            RECENT_PRS=$(cat "$MERGED_PRS_FILE" | jq -r --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | map(.key) | join(",")')
+            [ "$RECENT_PRS" != "" ] && [ "$RECENT_PRS" != "null" ] && RECENT_MERGED_PRS="$RECENT_PRS"
+            
+            # Clean up old entries
+            cat "$MERGED_PRS_FILE" | jq --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | from_entries' > "${MERGED_PRS_FILE}.tmp"
+            mv "${MERGED_PRS_FILE}.tmp" "$MERGED_PRS_FILE"
+          fi
+
+          # Get recently closed PRs
+          RECENT_CLOSED_PRS=""
+          if [ -f "$CLOSED_PRS_FILE" ]; then
+            RECENT_PRS=$(cat "$CLOSED_PRS_FILE" | jq -r --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | map(.key) | join(",")')
+            [ "$RECENT_PRS" != "" ] && [ "$RECENT_PRS" != "null" ] && RECENT_CLOSED_PRS="$RECENT_PRS"
+            
+            # Clean up old entries
+            cat "$CLOSED_PRS_FILE" | jq --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | from_entries' > "${CLOSED_PRS_FILE}.tmp"
+            mv "${CLOSED_PRS_FILE}.tmp" "$CLOSED_PRS_FILE"
+          fi
+
+          echo "Recent merged PRs (last 7 days): $RECENT_MERGED_PRS"
+          echo "Recent closed PRs (last 7 days): $RECENT_CLOSED_PRS"
+
+          # Create the PR section for README
+          echo "## Currently Installed PRs" > /tmp/pr_section.md
+          echo "" >> /tmp/pr_section.md
+
+          if [ -n "$UNMERGED_PRS" ]; then
+            echo "The following PRs are automatically merged into this fork:" >> /tmp/pr_section.md
+            echo "" >> /tmp/pr_section.md
+
+            IFS=',' read -ra PR_ARRAY <<< "$UNMERGED_PRS"
+            for PR_NUMBER in "${PR_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              echo "- [Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)" >> /tmp/pr_section.md
+            done
+
+            # Add recently removed section
+            if [ -n "$RECENT_MERGED_PRS" ] || [ -n "$RECENT_CLOSED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "### Recently Removed PRs (Last 7 Days)" >> /tmp/pr_section.md
+            fi
+
+            if [ -n "$RECENT_MERGED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ✅ Merged Upstream" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they have been merged into upstream Jellyfin Web:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra MERGED_ARRAY <<< "$RECENT_MERGED_PRS"
+              for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (merged on $MERGE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_CLOSED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ❌ Closed Without Merging" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were closed without being merged:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra CLOSED_ARRAY <<< "$RECENT_CLOSED_PRS"
+              for PR_NUMBER in "${CLOSED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                CLOSE_DATE=$(cat "$CLOSED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (closed on $CLOSE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+          else
+            echo "🎉 All PRs have been merged upstream or closed! This fork is now clean and matches the upstream Jellyfin Web repository." >> /tmp/pr_section.md
+            echo "" >> /tmp/pr_section.md
+
+            # Add recently removed section if there are any
+            if [ -n "$RECENT_MERGED_PRS" ] || [ -n "$RECENT_CLOSED_PRS" ]; then
+              echo "### Recently Removed PRs (Last 7 Days)" >> /tmp/pr_section.md
+            fi
+
+            if [ -n "$RECENT_MERGED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ✅ Merged Upstream" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they have been merged into upstream Jellyfin Web:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra MERGED_ARRAY <<< "$RECENT_MERGED_PRS"
+              for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (merged on $MERGE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_CLOSED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ❌ Closed Without Merging" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were closed without being merged:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra CLOSED_ARRAY <<< "$RECENT_CLOSED_PRS"
+              for PR_NUMBER in "${CLOSED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                CLOSE_DATE=$(cat "$CLOSED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (closed on $CLOSE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+          fi
+
+          echo "" >> /tmp/pr_section.md
+          echo "---" >> /tmp/pr_section.md
+
+          # Read the PR section content
+          PR_SECTION=$(cat /tmp/pr_section.md)
+
+          # Read the current README
+          README_CONTENT=$(cat README.md)
+
+          # Check if the PR section already exists
+          if echo "$README_CONTENT" | grep -q "## Currently Installed PRs"; then
+            # Replace existing section
+            # Extract content before the PR section
+            BEFORE_SECTION=$(echo "$README_CONTENT" | sed '/## Currently Installed PRs/,$d')
+            # Extract content after the PR section (after the next ---)
+            AFTER_SECTION=$(echo "$README_CONTENT" | sed -n '/## Currently Installed PRs/,/^---$/p' | sed '1,/^---$/d' | sed -n '/^---$/,$p' | tail -n +2)
+
+            # If no --- found after PR section, take everything after the next ##
+            if [ -z "$AFTER_SECTION" ]; then
+              AFTER_SECTION=$(echo "$README_CONTENT" | sed -n '/## Currently Installed PRs/,$p' | sed -n '/^## /,$p' | tail -n +2)
+            fi
+
+            # Combine the sections
+            echo "$BEFORE_SECTION" > README.md
+            echo "$PR_SECTION" >> README.md
+            echo "$AFTER_SECTION" >> README.md
+          else
+            # Add section after the main header
+            # Extract the header section (first 3 lines)
+            HEAD_SECTION=$(head -n 3 README.md)
+            # Extract the rest
+            REST_SECTION=$(tail -n +4 README.md)
+
+            # Combine sections
+            echo "$HEAD_SECTION" > README.md
+            echo "" >> README.md
+            echo "$PR_SECTION" >> README.md
+            echo "$REST_SECTION" >> README.md
+          fi
+
+          # Create commit message
+          COMMIT_MSG="Update README with current PR list"
+          if [ -n "$RECENT_MERGED_PRS" ] && [ -n "$RECENT_CLOSED_PRS" ]; then
+            COMMIT_MSG="$COMMIT_MSG (merged: $RECENT_MERGED_PRS, closed: $RECENT_CLOSED_PRS)"
+          elif [ -n "$RECENT_MERGED_PRS" ]; then
+            COMMIT_MSG="$COMMIT_MSG (merged upstream: $RECENT_MERGED_PRS)"
+          elif [ -n "$RECENT_CLOSED_PRS" ]; then
+            COMMIT_MSG="$COMMIT_MSG (closed: $RECENT_CLOSED_PRS)"
+          fi
+
+          # Commit the updated README and timestamps files
+          git add README.md "$MERGED_PRS_FILE" "$CLOSED_PRS_FILE"
+          git commit -m "$COMMIT_MSG" || echo "No changes to commit"
+
+      - name: Update PR list in workflow file
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        run: |
+          set +e  # Don't exit on error, we'll handle errors manually
+
+          echo "Starting PR list update process..."
+
+          # Read current PR list
+          CURRENT_PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
+          if [ -z "$CURRENT_PR_NUMBERS" ]; then
+            CURRENT_PR_NUMBERS="${{ env.DEFAULT_PR_NUMBERS }}"
+          fi
+
+          echo "Current PR list: $CURRENT_PR_NUMBERS"
+
+          # Get both merged and closed PRs
+          MERGED_UPSTREAM_PRS="${{ steps.check_pr_status.outputs.merged_upstream_prs }}"
+          CLOSED_PRS="${{ steps.check_pr_status.outputs.closed_prs }}"
+          
+          # Combine merged and closed PRs for removal
+          PRS_TO_REMOVE=""
+          if [ -n "$MERGED_UPSTREAM_PRS" ] && [ -n "$CLOSED_PRS" ]; then
+            PRS_TO_REMOVE="$MERGED_UPSTREAM_PRS,$CLOSED_PRS"
+          elif [ -n "$MERGED_UPSTREAM_PRS" ]; then
+            PRS_TO_REMOVE="$MERGED_UPSTREAM_PRS"
+          elif [ -n "$CLOSED_PRS" ]; then
+            PRS_TO_REMOVE="$CLOSED_PRS"
+          fi
+          
+          if [ -n "$PRS_TO_REMOVE" ]; then
+            echo "PRs to be removed (merged or closed): $PRS_TO_REMOVE"
+            
+            # Convert to arrays
+            IFS=',' read -ra CURRENT_ARRAY <<< "$CURRENT_PR_NUMBERS"
+            IFS=',' read -ra REMOVE_ARRAY <<< "$PRS_TO_REMOVE"
+            
+            NEW_PR_LIST=""
+            REMOVED_COUNT=0
+
+            for PR in "${CURRENT_ARRAY[@]}"; do
+              PR=$(echo $PR | xargs)  # Trim whitespace
+              SHOULD_REMOVE=false
+
+              # Check if this PR should be removed
+              for REMOVE_PR in "${REMOVE_ARRAY[@]}"; do
+                REMOVE_PR=$(echo $REMOVE_PR | xargs)
+                if [ "$PR" == "$REMOVE_PR" ]; then
+                  SHOULD_REMOVE=true
+                  ((REMOVED_COUNT++))
+                  echo "  Will remove PR $PR from list"
+                  break
+                fi
+              done
+
+              if [ "$SHOULD_REMOVE" == "false" ]; then
+                if [ -z "$NEW_PR_LIST" ]; then
+                  NEW_PR_LIST="$PR"
+                else
+                  NEW_PR_LIST="$NEW_PR_LIST,$PR"
+                fi
+              fi
+            done
+
+            # Update the workflow file if PRs were removed
+            if [ "$NEW_PR_LIST" != "$CURRENT_PR_NUMBERS" ]; then
+              echo "Updating PR list in workflow file..."
+              echo "Old list: $CURRENT_PR_NUMBERS"
+              echo "New list: $NEW_PR_LIST"
+              echo "Removed $REMOVED_COUNT PR(s)"
+
+              # Update the workflow file
+              WORKFLOW_FILE=".github/workflows/Reset to Upstream and Merge PRs.yml"
+
+              if [ -f "$WORKFLOW_FILE" ]; then
+                # Create a backup
+                cp "$WORKFLOW_FILE" "${WORKFLOW_FILE}.bak"
+
+                # Update the PR numbers
+                sed -i "s|DEFAULT_PR_NUMBERS: '5011,6735,6919,6965,7058,7090,7100,7112,7135'|" "$WORKFLOW_FILE"
+
+                # Verify the change was made
+                if grep -q "DEFAULT_PR_NUMBERS: '5011,6735,6919,6965,7058,7090,7100,7112,7135'" "$WORKFLOW_FILE"; then
+                  echo "Successfully updated workflow file"
+                  echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
+
+                  # Show the updated line
+                  grep "DEFAULT_PR_NUMBERS:" "$WORKFLOW_FILE"
+
+                  # Stage the change for commit
+                  git add "$WORKFLOW_FILE"
+
+                  # Remove backup
+                  rm -f "${WORKFLOW_FILE}.bak"
+                else
+                  echo "Error: Failed to update workflow file"
+                  echo "Looking for DEFAULT_PR_NUMBERS line:"
+                  grep "DEFAULT_PR_NUMBERS:" "$WORKFLOW_FILE" || echo "Line not found!"
+                  # Restore from backup
+                  mv "${WORKFLOW_FILE}.bak" "$WORKFLOW_FILE"
+                  exit 1
+                fi
+              else
+                echo "Warning: Workflow file not found at $WORKFLOW_FILE"
+                exit 1
+              fi
+            else
+              echo "No PRs to remove from the list"
+            fi
+          else
+            echo "No PRs were merged upstream or closed - keeping current list intact"
+          fi
+          
+      - name: Apply custom patches
+        run: |
+          # Restore patches directory first
+          mkdir -p .github/patches
+          if [ -d "/tmp/patches-backup" ]; then
+            cp -r /tmp/patches-backup/* .github/patches/ || true
+          fi
+          
+          # Apply subtitle defaults patch if it exists
+          if [ -f ".github/patches/subtitle-defaults.patch" ]; then
+            echo "Applying subtitle defaults patch..."
+            if git apply --check .github/patches/subtitle-defaults.patch 2>/dev/null; then
+              git apply .github/patches/subtitle-defaults.patch
+              echo "✅ Subtitle defaults patch applied successfully"
+            else
+              echo "⚠️ Subtitle defaults patch failed to apply - may need updating"
+              echo "This is not critical, continuing..."
+            fi
+          else
+            echo "No subtitle defaults patch found at .github/patches/subtitle-defaults.patch"
+          fi
+          
+          # Apply any other patches in the patches directory
+          if [ -d ".github/patches" ]; then
+            for patch_file in .github/patches/*.patch; do
+              if [ -f "$patch_file" ] && [ "$patch_file" != ".github/patches/subtitle-defaults.patch" ]; then
+                echo "Applying $(basename $patch_file)..."
+                if git apply --check "$patch_file" 2>/dev/null; then
+                  git apply "$patch_file"
+                  echo "✅ $(basename $patch_file) applied successfully"
+                else
+                  echo "⚠️ $(basename $patch_file) failed to apply"
+                fi
+              fi
+            done
+          fi
+          
+          # Commit patch changes if any were applied
+          if ! git diff --quiet; then
+            git add -A
+            git commit -m "Apply custom patches after upstream reset" || true
+          fi
+
+      - name: Push changes
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        run: |
+          # Clean up temporary files
+          rm -f pr_status.txt merge_results.txt prs_to_merge.txt
+          
+          # Check if we have any uncommitted changes (workflow file update)
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto-update PR list: removed merged/closed PRs"
+          fi
+
+          # Push all changes
+          git push origin master --force
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.reset_upstream.outputs.reset_success }}" == "true" ]; then
+            echo "✅ Successfully reset to upstream" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Failed to reset to upstream" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "pr_status.txt" ]; then
+            cat pr_status.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f "merge_results.txt" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat merge_results.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Add info about PR list updates
+          if [ -n "${{ env.PR_LIST_UPDATED }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## PR List Update" >> $GITHUB_STEP_SUMMARY
+            echo "Automatically removed merged/closed PRs from the workflow file" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Send Discord notification on failure
+        uses: Ilshidur/action-discord@master
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            ❌ Reset to upstream failed!
+            PRs attempted: ${{ github.event.inputs.pr_numbers || env.DEFAULT_PR_NUMBERS }}
+            See workflow logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send Discord notification on success
+        uses: Ilshidur/action-discord@master
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            ✅ Successfully reset to upstream jellyfin-web!
+            ${{ env.PR_LIST_UPDATED && '📝 PR list auto-updated - merged/closed PRs removed' || '' }}
+            📋 README updated with current PR status
+            🔧 Conflict resolution: ${{ github.event.inputs.conflict_resolution_strategy || 'auto-head' }}
+            Check the summary: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
