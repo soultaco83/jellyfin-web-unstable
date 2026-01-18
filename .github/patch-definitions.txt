@@ -1,0 +1,6 @@
+# Patch Definitions File
+# Format: patch-name.patch|file/path/to/modify.js|Brief description
+# Lines starting with # are comments
+
+subtitle-defaults.patch|src/components/subtitlesettings/subtitlesettings.js|Set smart subtitle defaults for new users
+cardRatings-default-true.patch|src/scripts/settings/userSettings.js|Enable card ratings by default
