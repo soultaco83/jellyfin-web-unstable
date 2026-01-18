@@ -105,6 +105,7 @@
 - [johnnyg](https://github.com/johnnyg)
 - [bjorntp](https://github.com/bjorntp)
 - [klaki892](https://github.com/klaki892)
+- [shoecar](https://github.com/shoecar)
 
 ## Emby Contributors
 
