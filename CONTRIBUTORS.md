@@ -104,6 +104,7 @@
 - [qm3jp](https://github.com/qm3jp)
 - [johnnyg](https://github.com/johnnyg)
 - [bjorntp](https://github.com/bjorntp)
+- [klaki892](https://github.com/klaki892)
 
 ## Emby Contributors
 
