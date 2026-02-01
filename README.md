@@ -1,6 +1,35 @@
 <h1 align="center">Jellyfin Web</h1>
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 
+## Currently Installed PRs
+
+The following PRs are automatically merged into this fork:
+
+- [Upstream PR #5011](https://github.com/jellyfin/jellyfin-web/pull/5011)
+- [Upstream PR #6735](https://github.com/jellyfin/jellyfin-web/pull/6735)
+- [Upstream PR #7058](https://github.com/jellyfin/jellyfin-web/pull/7058)
+- [Upstream PR #7090](https://github.com/jellyfin/jellyfin-web/pull/7090)
+- [Upstream PR #7100](https://github.com/jellyfin/jellyfin-web/pull/7100)
+- [Upstream PR #7307](https://github.com/jellyfin/jellyfin-web/pull/7307)
+- [Upstream PR #7355](https://github.com/jellyfin/jellyfin-web/pull/7355)
+- [Upstream PR #7391](https://github.com/jellyfin/jellyfin-web/pull/7391)
+- [Upstream PR #7410](https://github.com/jellyfin/jellyfin-web/pull/7410)
+- [Upstream PR #7414](https://github.com/jellyfin/jellyfin-web/pull/7414)
+- [Upstream PR #7419](https://github.com/jellyfin/jellyfin-web/pull/7419)
+- [Upstream PR #7431](https://github.com/jellyfin/jellyfin-web/pull/7431)
+- [Upstream PR #7445](https://github.com/jellyfin/jellyfin-web/pull/7445)
+- [Upstream PR #7446](https://github.com/jellyfin/jellyfin-web/pull/7446)
+- [Upstream PR #7453](https://github.com/jellyfin/jellyfin-web/pull/7453)
+- [Upstream PR #7455](https://github.com/jellyfin/jellyfin-web/pull/7455)
+- [Upstream PR #7461](https://github.com/jellyfin/jellyfin-web/pull/7461)
+- [Upstream PR #7469](https://github.com/jellyfin/jellyfin-web/pull/7469)
+- [Upstream PR #7471](https://github.com/jellyfin/jellyfin-web/pull/7471)
+- [Upstream PR #7477](https://github.com/jellyfin/jellyfin-web/pull/7477)
+- [Upstream PR #7478](https://github.com/jellyfin/jellyfin-web/pull/7478)
+- [Upstream PR #7480](https://github.com/jellyfin/jellyfin-web/pull/7480)
+- [Upstream PR #7487](https://github.com/jellyfin/jellyfin-web/pull/7487)
+
+---
 ---
 
 <p align="center">
