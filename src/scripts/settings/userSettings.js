@@ -321,7 +321,7 @@ export class UserSettings {
             return this.set('cardRatings', val.toString(), false);
         }
 
-        return this.get('cardRatings', false) === 'true';
+        return toBoolean(this.get('cardRatings', false), true);
     }
 
     /**
