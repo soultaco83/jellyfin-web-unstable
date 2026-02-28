@@ -814,42 +814,45 @@ function renderNextUp(page, item, user) {
 }
 
 function setInitialCollapsibleState(page, item, apiClient, context, user) {
-    page.querySelector('.collectionItems').innerHTML = '';
+    const collectionItems = page.querySelector('.collectionItems');
+    if (collectionItems) {
+        collectionItems.innerHTML = '';
+    }
 
     if (item.Type == 'Playlist') {
-        page.querySelector('#listChildrenCollapsible').classList.remove('hide');
-        page.querySelector('#childrenCollapsible').classList.add('hide');
+        page.querySelector('#listChildrenCollapsible')?.classList.remove('hide');
+        page.querySelector('#childrenCollapsible')?.classList.add('hide');
         renderPlaylistItems(page, item);
     } else if (item.Type == 'Studio' || item.Type == 'Person' || item.Type == 'Genre' || item.Type == 'MusicGenre' || item.Type == 'MusicArtist') {
-        page.querySelector('#listChildrenCollapsible').classList.remove('hide');
-        page.querySelector('#childrenCollapsible').classList.add('hide');
+        page.querySelector('#listChildrenCollapsible')?.classList.remove('hide');
+        page.querySelector('#childrenCollapsible')?.classList.add('hide');
         renderItemsByName(page, item);
     } else if (item.IsFolder) {
         if (item.Type == 'BoxSet') {
-            page.querySelector('#listChildrenCollapsible').classList.add('hide');
-            page.querySelector('#childrenCollapsible').classList.add('hide');
+            page.querySelector('#listChildrenCollapsible')?.classList.add('hide');
+            page.querySelector('#childrenCollapsible')?.classList.add('hide');
         }
 
         renderChildren(page, item);
     } else {
-        page.querySelector('#listChildrenCollapsible').classList.add('hide');
-        page.querySelector('#childrenCollapsible').classList.add('hide');
+        page.querySelector('#listChildrenCollapsible')?.classList.add('hide');
+        page.querySelector('#childrenCollapsible')?.classList.add('hide');
     }
 
     if (item.Type == 'Series') {
         renderSeriesSchedule(page, item);
         renderNextUp(page, item, user);
     } else {
-        page.querySelector('.nextUpSection').classList.add('hide');
+        page.querySelector('.nextUpSection')?.classList.add('hide');
     }
 
     renderScenes(page, item);
 
     if (item.SpecialFeatureCount > 0) {
-        page.querySelector('#specialsCollapsible').classList.remove('hide');
+        page.querySelector('#specialsCollapsible')?.classList.remove('hide');
         renderSpecials(page, item, user);
     } else {
-        page.querySelector('#specialsCollapsible').classList.add('hide');
+        page.querySelector('#specialsCollapsible')?.classList.add('hide');
     }
 
     const cast = [];
@@ -866,16 +869,16 @@ function setInitialCollapsibleState(page, item, apiClient, context, user) {
     renderGuestCast(page, item, guestCast);
 
     if (item.PartCount && item.PartCount > 1) {
-        page.querySelector('#additionalPartsCollapsible').classList.remove('hide');
+        page.querySelector('#additionalPartsCollapsible')?.classList.remove('hide');
         renderAdditionalParts(page, item, user);
     } else {
-        page.querySelector('#additionalPartsCollapsible').classList.add('hide');
+        page.querySelector('#additionalPartsCollapsible')?.classList.add('hide');
     }
 
     if (item.Type == BaseItemKind.MusicAlbum) {
         renderMusicVideos(page, item, user);
     } else {
-        page.querySelector('#musicVideosCollapsible').classList.add('hide');
+        page.querySelector('#musicVideosCollapsible')?.classList.add('hide');
     }
 }
 
@@ -1703,8 +1706,12 @@ function canPlaySomeItemInCollection(items) {
 }
 
 function renderCollectionItems(page, parentItem, types, items) {
-    page.querySelector('.collectionItems').classList.remove('hide');
-    page.querySelector('.collectionItems').innerHTML = '';
+    const collectionItems = page.querySelector('.collectionItems');
+    if (!collectionItems) {
+        return;
+    }
+    collectionItems.classList.remove('hide');
+    collectionItems.innerHTML = '';
 
     if (!items.length) {
         renderCollectionItemType(page, parentItem, {
@@ -1777,8 +1784,10 @@ function renderCollectionItemType(page, parentItem, type, items) {
     html += '</div>';
     html += '</div>';
     const collectionItems = page.querySelector('.collectionItems');
-    collectionItems.insertAdjacentHTML('beforeend', html);
-    imageLoader.lazyChildren(collectionItems.lastChild);
+    if (collectionItems) {
+        collectionItems.insertAdjacentHTML('beforeend', html);
+        imageLoader.lazyChildren(collectionItems.lastChild);
+    }
 }
 
 function renderMusicVideos(page, item, user) {
