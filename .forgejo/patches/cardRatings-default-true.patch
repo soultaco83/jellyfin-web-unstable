@@ -1,0 +1,12 @@
+diff --git a/src/scripts/settings/userSettings.js b/src/scripts/settings/userSettings.js
+--- a/src/scripts/settings/userSettings.js
++++ b/src/scripts/settings/userSettings.js
+@@ -326,7 +326,7 @@ export class UserSettings {
+             return this.set('cardRatings', val.toString(), false);
+         }
+
+-        return this.get('cardRatings', false) === 'true';
++        return toBoolean(this.get('cardRatings', false), true);
+     }
+
+     /**
