@@ -1,0 +1,834 @@
+name: Reset to Upstream and Merge PRs
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # Runs at midnight EST sunday
+  workflow_dispatch:
+    inputs:
+      pr_numbers:
+        description: 'Comma-separated list of PR numbers to merge'
+        required: false
+        type: string
+        default: ''
+      auto_resolve_conflicts:
+        description: 'Auto-resolve conflicts in favor of our version (HEAD)'
+        required: false
+        type: boolean
+        default: true
+      conflict_resolution_strategy:
+        description: 'How to resolve conflicts: auto-head (our version), auto-pr (PR version), or skip (skip conflicted PRs)'
+        required: false
+        type: choice
+        options:
+          - auto-head
+          - auto-pr
+          - skip
+        default: 'auto-head'
+      pr_specific_strategies:
+        description: 'Per-PR conflict strategies (format: "7090:auto-pr,7307:auto-head") - overrides global strategy'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: read
+
+env:
+  FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN || github.token }}
+
+jobs:
+  reset-and-merge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ env.FORGEJO_TOKEN }}
+          persist-credentials: true
+
+      - name: Verify authentication
+        run: |
+          if [ -n "${{ secrets.FORGEJO_TOKEN }}" ]; then
+            echo "✅ FORGEJO_TOKEN secret is configured"
+          else
+            echo "✅ Using default Forgejo job token"
+          fi
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "Forgejo Action"
+          git config --global user.email "action@forgejo.local"
+          git config --global merge.ours.driver true
+          git config pull.rebase false
+
+      - name: Generate patches from custom modifications
+        run: |
+          echo "=== Generating Patches from Custom Modifications ==="
+          if [ -f ".forgejo/scripts/generate-patches.sh" ]; then
+            chmod +x .forgejo/scripts/generate-patches.sh
+            .forgejo/scripts/generate-patches.sh
+          else
+            echo "⚠️  Patch generation script not found, skipping"
+          fi
+          echo "Current patches in .forgejo/patches:"
+          ls -lh .forgejo/patches/ || echo "No patches directory found"
+
+      - name: Backup custom .forgejo files
+        run: |
+          mkdir -p /tmp/forgejo-backup
+          cp -r .forgejo/. /tmp/forgejo-backup/ || true
+          echo "Backed up .forgejo/ contents:"
+          ls -la /tmp/forgejo-backup/
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/jellyfin/jellyfin-web.git || \
+          git remote set-url upstream https://github.com/jellyfin/jellyfin-web.git
+
+          git remote set-url origin http://x-access-token:${FORGEJO_TOKEN}@10.10.10.220:3000/soultaco83/jellyfin-web-unstable.git
+
+      - name: Fetch all remotes
+        run: |
+          echo "Current remotes:"
+          git remote -v
+          echo "Fetching from origin..."
+          git fetch origin
+          echo "Fetching from upstream..."
+          git fetch upstream --prune
+          echo "Fetched latest changes from all remotes"
+
+      - name: Reset to upstream/master
+        id: reset_upstream
+        run: |
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit: $(git rev-parse HEAD)"
+          echo "Upstream commit: $(git rev-parse upstream/master)"
+
+          git checkout master
+          git reset --hard upstream/master
+
+          echo "✅ Successfully reset to upstream/master"
+          echo "New HEAD: $(git rev-parse HEAD)"
+          echo "reset_success=true" >> $GITHUB_OUTPUT
+
+      - name: Restore .forgejo files and commit
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        run: |
+          # Remove upstream's .github directory — this repo uses .forgejo instead
+          rm -rf .github/
+          rm -rf .forgejo/
+          mkdir -p .forgejo/
+          if [ -d "/tmp/forgejo-backup" ]; then
+            cp -r /tmp/forgejo-backup/. .forgejo/
+          fi
+
+          # Use -A to stage both the .github deletion and .forgejo restoration
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Restore .forgejo/ files after reset to upstream/master"
+          fi
+
+      - name: Check PR status (merged, closed, or open)
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        id: check_pr_status
+        run: |
+          PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
+          if [ -z "$PR_NUMBERS" ]; then
+            if [ -f ".forgejo/pr-list.txt" ]; then
+              PR_NUMBERS=$(grep -v '^#' .forgejo/pr-list.txt | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+            fi
+          fi
+
+          IFS=',' read -ra PR_ARRAY <<< "$PR_NUMBERS"
+
+          echo "## PR Status Check" > pr_status.txt
+          echo "" >> pr_status.txt
+
+          MERGED_UPSTREAM_PRS=""
+          CLOSED_PRS=""
+          DRAFT_PRS=""
+          STABLE_BACKPORT_PRS=""
+          UNMERGED_PRS=""
+
+          for ENTRY in "${PR_ARRAY[@]}"; do
+            ENTRY=$(echo $ENTRY | xargs)  # Trim whitespace
+
+            # local:branchname and pr:N entries are always applied — no upstream check needed
+            if [[ "$ENTRY" == local:* ]] || [[ "$ENTRY" == pr:* ]]; then
+              if [[ "$ENTRY" == pr:* ]]; then
+                echo "🔧 $ENTRY (local Forgejo PR) — will be applied" >> pr_status.txt
+              else
+                echo "🔧 $ENTRY (local Forgejo branch) — will be applied" >> pr_status.txt
+              fi
+              echo "$ENTRY" >> prs_to_merge.txt
+              if [ -z "$UNMERGED_PRS" ]; then
+                UNMERGED_PRS="$ENTRY"
+              else
+                UNMERGED_PRS="$UNMERGED_PRS,$ENTRY"
+              fi
+              continue
+            fi
+
+            PR_NUMBER="$ENTRY"
+
+            # Check if PR is already merged upstream
+            if git log upstream/master --grep="Merge pull request #$PR_NUMBER" --oneline | grep -q "$PR_NUMBER"; then
+              echo "✅ PR $PR_NUMBER is already merged upstream" >> pr_status.txt
+              if [ -z "$MERGED_UPSTREAM_PRS" ]; then
+                MERGED_UPSTREAM_PRS="$PR_NUMBER"
+              else
+                MERGED_UPSTREAM_PRS="$MERGED_UPSTREAM_PRS,$PR_NUMBER"
+              fi
+            else
+              echo "Checking PR $PR_NUMBER status via GitHub API..."
+
+              CURL_RESP=$(curl -sf "https://api.github.com/repos/jellyfin/jellyfin-web/pulls/$PR_NUMBER" 2>/dev/null || echo "{}")
+
+              if echo "$CURL_RESP" | jq -e '.state' > /dev/null 2>&1; then
+                STATE=$(echo "$CURL_RESP" | jq -r '.state | ascii_upcase')
+                IS_MERGED=$(echo "$CURL_RESP" | jq -r 'if .merged_at != null then "true" else "false" end')
+                IS_DRAFT=$(echo "$CURL_RESP" | jq -r '.draft | tostring')
+                LABELS=$(echo "$CURL_RESP" | jq -r '[.labels[].name] | join(",")')
+              else
+                echo "⚠️ Could not fetch PR $PR_NUMBER from GitHub API, treating as UNKNOWN"
+                STATE="UNKNOWN"
+                IS_MERGED="false"
+                IS_DRAFT="false"
+                LABELS=""
+              fi
+
+              if [ "$STATE" = "CLOSED" ] && [ "$IS_MERGED" = "false" ]; then
+                echo "❌ PR $PR_NUMBER is closed (not merged)" >> pr_status.txt
+                if [ -z "$CLOSED_PRS" ]; then
+                  CLOSED_PRS="$PR_NUMBER"
+                else
+                  CLOSED_PRS="$CLOSED_PRS,$PR_NUMBER"
+                fi
+              elif [ "$IS_DRAFT" = "true" ]; then
+                echo "📝 PR $PR_NUMBER is a draft" >> pr_status.txt
+                if [ -z "$DRAFT_PRS" ]; then
+                  DRAFT_PRS="$PR_NUMBER"
+                else
+                  DRAFT_PRS="$DRAFT_PRS,$PR_NUMBER"
+                fi
+              elif echo "$LABELS" | grep -qi "stable backport"; then
+                echo "🏷️  PR $PR_NUMBER is tagged with 'stable backport'" >> pr_status.txt
+                if [ -z "$STABLE_BACKPORT_PRS" ]; then
+                  STABLE_BACKPORT_PRS="$PR_NUMBER"
+                else
+                  STABLE_BACKPORT_PRS="$STABLE_BACKPORT_PRS,$PR_NUMBER"
+                fi
+              elif [ "$STATE" = "OPEN" ] || [ "$STATE" = "UNKNOWN" ]; then
+                echo "⭕ PR $PR_NUMBER needs to be merged" >> pr_status.txt
+                echo "$PR_NUMBER" >> prs_to_merge.txt
+                if [ -z "$UNMERGED_PRS" ]; then
+                  UNMERGED_PRS="$PR_NUMBER"
+                else
+                  UNMERGED_PRS="$UNMERGED_PRS,$PR_NUMBER"
+                fi
+              fi
+            fi
+          done
+
+          echo "PR Status:"
+          cat pr_status.txt
+
+          echo "merged_upstream_prs=$MERGED_UPSTREAM_PRS" >> $GITHUB_OUTPUT
+          echo "closed_prs=$CLOSED_PRS" >> $GITHUB_OUTPUT
+          echo "draft_prs=$DRAFT_PRS" >> $GITHUB_OUTPUT
+          echo "stable_backport_prs=$STABLE_BACKPORT_PRS" >> $GITHUB_OUTPUT
+          echo "unmerged_prs=$UNMERGED_PRS" >> $GITHUB_OUTPUT
+
+      - name: Merge PRs
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        id: merge_prs
+        run: |
+          if [ ! -f "prs_to_merge.txt" ]; then
+            echo "All PRs are either merged upstream or closed!"
+            echo "newly_merged_prs=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "## Merge Results" > merge_results.txt
+          echo "" >> merge_results.txt
+
+          NEWLY_MERGED_PRS=""
+
+          declare -A PR_STRATEGIES
+          if [ -n "${{ github.event.inputs.pr_specific_strategies }}" ]; then
+            echo "Parsing per-PR conflict strategies..."
+            IFS=',' read -ra STRATEGY_PAIRS <<< "${{ github.event.inputs.pr_specific_strategies }}"
+            for pair in "${STRATEGY_PAIRS[@]}"; do
+              if [[ $pair == *":"* ]]; then
+                PR=$(echo "$pair" | cut -d':' -f1 | xargs)
+                STRATEGY=$(echo "$pair" | cut -d':' -f2 | xargs)
+                PR_STRATEGIES[$PR]=$STRATEGY
+                echo "  PR $PR: $STRATEGY"
+              fi
+            done
+          fi
+
+          while IFS= read -r ENTRY; do
+            ENTRY=$(echo "$ENTRY" | xargs)
+            echo "Processing: $ENTRY"
+
+            # local:branchname → fetch branch from Forgejo origin by name
+            # pr:N            → fetch Forgejo PR #N head via refs/pull/N/head
+            # plain number    → fetch from upstream GitHub (with optional Forgejo override)
+            if [[ "$ENTRY" == local:* ]]; then
+              BRANCH_NAME="${ENTRY#local:}"
+              TEMP_BRANCH="pr-local-$(echo "$BRANCH_NAME" | tr '/' '-' | tr ':' '-')"
+              DISPLAY_NAME="local branch: $BRANCH_NAME"
+              if git fetch origin "$BRANCH_NAME:$TEMP_BRANCH"; then
+                FETCH_OK=true
+                FETCH_SOURCE="local Forgejo branch"
+              else
+                FETCH_OK=false
+              fi
+              STRATEGY="auto-head"
+            elif [[ "$ENTRY" == pr:* ]]; then
+              LOCAL_PR_NUMBER="${ENTRY#pr:}"
+              TEMP_BRANCH="pr-local-forgejo-$LOCAL_PR_NUMBER"
+              DISPLAY_NAME="local Forgejo PR #$LOCAL_PR_NUMBER"
+              if git fetch origin "refs/pull/$LOCAL_PR_NUMBER/head:$TEMP_BRANCH"; then
+                FETCH_OK=true
+                FETCH_SOURCE="local Forgejo PR"
+              else
+                FETCH_OK=false
+              fi
+              STRATEGY="auto-head"
+            else
+              PR_NUMBER="$ENTRY"
+              TEMP_BRANCH="pr-$PR_NUMBER"
+              DISPLAY_NAME="PR $PR_NUMBER"
+              FORGEJO_OVERRIDE_REF="upstream-pr/$PR_NUMBER"
+              if git ls-remote origin "refs/heads/$FORGEJO_OVERRIDE_REF" | grep -q "$FORGEJO_OVERRIDE_REF"; then
+                echo "🔧 Found Forgejo override branch $FORGEJO_OVERRIDE_REF — using local version"
+                git fetch origin "$FORGEJO_OVERRIDE_REF:$TEMP_BRANCH"
+                FETCH_OK=true
+                FETCH_SOURCE="Forgejo override"
+              elif git fetch upstream "pull/$PR_NUMBER/head:$TEMP_BRANCH"; then
+                FETCH_OK=true
+                FETCH_SOURCE="upstream GitHub"
+              else
+                FETCH_OK=false
+              fi
+              STRATEGY="${PR_STRATEGIES[$PR_NUMBER]:-${{ github.event.inputs.conflict_resolution_strategy || 'auto-head' }}}"
+            fi
+
+            if [ "$FETCH_OK" = "true" ]; then
+              echo "Fetched $DISPLAY_NAME successfully (source: $FETCH_SOURCE)"
+
+              if [ "$STRATEGY" = "skip" ]; then
+                echo "⏭️ Skipping $DISPLAY_NAME (strategy: skip)" >> merge_results.txt
+                git branch -D "$TEMP_BRANCH" || true
+              else
+                case $STRATEGY in
+                  "auto-head") MERGE_X_OPT="-X ours" ;;
+                  "auto-pr")   MERGE_X_OPT="-X theirs" ;;
+                  *)           MERGE_X_OPT="" ;;
+                esac
+
+                if git merge "$TEMP_BRANCH" --no-ff $MERGE_X_OPT -m "Merge $DISPLAY_NAME ($FETCH_SOURCE)"; then
+                  case $STRATEGY in
+                    "auto-head") echo "✅ Merged $DISPLAY_NAME ($FETCH_SOURCE) with conflict resolution (HEAD wins)" >> merge_results.txt ;;
+                    "auto-pr")   echo "✅ Merged $DISPLAY_NAME ($FETCH_SOURCE) with conflict resolution (PR wins)" >> merge_results.txt ;;
+                    *)           echo "✅ Merged $DISPLAY_NAME ($FETCH_SOURCE) successfully" >> merge_results.txt ;;
+                  esac
+
+                  if [ -z "$NEWLY_MERGED_PRS" ]; then
+                    NEWLY_MERGED_PRS="$ENTRY"
+                  else
+                    NEWLY_MERGED_PRS="$NEWLY_MERGED_PRS,$ENTRY"
+                  fi
+
+                  git branch -D "$TEMP_BRANCH"
+                else
+                  echo "❌ Failed to merge $DISPLAY_NAME" >> merge_results.txt
+                  git merge --abort || true
+                  git branch -D "$TEMP_BRANCH" || true
+                fi
+              fi
+            else
+              echo "❌ Failed to fetch $DISPLAY_NAME" >> merge_results.txt
+            fi
+          done < prs_to_merge.txt
+
+          echo ""
+          echo "Merge Summary:"
+          cat merge_results.txt
+
+          echo "newly_merged_prs=$NEWLY_MERGED_PRS" >> $GITHUB_OUTPUT
+
+      - name: Apply custom patches
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        id: apply_patches
+        run: |
+          echo "=== Applying Custom Patches ==="
+
+          if [ -f ".forgejo/scripts/apply-patches.sh" ]; then
+            chmod +x .forgejo/scripts/apply-patches.sh
+
+            if .forgejo/scripts/apply-patches.sh; then
+              echo "✅ All patches applied successfully"
+              echo "patches_applied=true" >> $GITHUB_OUTPUT
+
+              git add -A
+              if ! git diff --cached --quiet; then
+                git commit -m "Apply custom patches after upstream reset"
+                echo "changes_committed=true" >> $GITHUB_OUTPUT
+              else
+                echo "No changes to commit from patches"
+              fi
+            else
+              echo "⚠️ Some patches failed to apply"
+              echo "patches_applied=false" >> $GITHUB_OUTPUT
+
+              if [ -f "/tmp/failed_patches.txt" ]; then
+                echo ""
+                echo "=== Failed Patches ==="
+                while IFS='|' read -r patch_name file_path; do
+                  echo "  ❌ $patch_name  →  $file_path"
+                done < /tmp/failed_patches.txt
+                cp /tmp/failed_patches.txt /tmp/failed_patches_summary.txt
+              fi
+
+              git add -A
+              if ! git diff --cached --quiet; then
+                git commit -m "Partially apply custom patches (some conflicts detected)"
+                echo "changes_committed=true" >> $GITHUB_OUTPUT
+              fi
+            fi
+          else
+            echo "⚠️ .forgejo/scripts/apply-patches.sh not found, skipping"
+            echo "patches_applied=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update README with current PR list
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        run: |
+          MERGED_UPSTREAM_PRS="${{ steps.check_pr_status.outputs.merged_upstream_prs }}"
+          CLOSED_PRS="${{ steps.check_pr_status.outputs.closed_prs }}"
+          DRAFT_PRS="${{ steps.check_pr_status.outputs.draft_prs }}"
+          STABLE_BACKPORT_PRS="${{ steps.check_pr_status.outputs.stable_backport_prs }}"
+          UNMERGED_PRS="${{ steps.check_pr_status.outputs.unmerged_prs }}"
+          NEWLY_MERGED_PRS="${{ steps.merge_prs.outputs.newly_merged_prs }}"
+
+          MERGED_PRS_FILE=".forgejo/merged_prs_timestamps.json"
+          CLOSED_PRS_FILE=".forgejo/closed_prs_timestamps.json"
+          DRAFT_PRS_FILE=".forgejo/draft_prs_timestamps.json"
+          STABLE_BACKPORT_PRS_FILE=".forgejo/stable_backport_prs_timestamps.json"
+
+          [ ! -f "$MERGED_PRS_FILE" ] && echo "{}" > "$MERGED_PRS_FILE"
+          [ ! -f "$CLOSED_PRS_FILE" ] && echo "{}" > "$CLOSED_PRS_FILE"
+          [ ! -f "$DRAFT_PRS_FILE" ] && echo "{}" > "$DRAFT_PRS_FILE"
+          [ ! -f "$STABLE_BACKPORT_PRS_FILE" ] && echo "{}" > "$STABLE_BACKPORT_PRS_FILE"
+
+          CURRENT_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          if [ -n "$MERGED_UPSTREAM_PRS" ]; then
+            IFS=',' read -ra MERGED_ARRAY <<< "$MERGED_UPSTREAM_PRS"
+            for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              cat "$MERGED_PRS_FILE" | jq --arg pr "$PR_NUMBER" --arg ts "$CURRENT_TIMESTAMP" '. + {($pr): $ts}' > "${MERGED_PRS_FILE}.tmp"
+              mv "${MERGED_PRS_FILE}.tmp" "$MERGED_PRS_FILE"
+            done
+          fi
+
+          if [ -n "$CLOSED_PRS" ]; then
+            IFS=',' read -ra CLOSED_ARRAY <<< "$CLOSED_PRS"
+            for PR_NUMBER in "${CLOSED_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              cat "$CLOSED_PRS_FILE" | jq --arg pr "$PR_NUMBER" --arg ts "$CURRENT_TIMESTAMP" '. + {($pr): $ts}' > "${CLOSED_PRS_FILE}.tmp"
+              mv "${CLOSED_PRS_FILE}.tmp" "$CLOSED_PRS_FILE"
+            done
+          fi
+
+          if [ -n "$DRAFT_PRS" ]; then
+            IFS=',' read -ra DRAFT_ARRAY <<< "$DRAFT_PRS"
+            for PR_NUMBER in "${DRAFT_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              cat "$DRAFT_PRS_FILE" | jq --arg pr "$PR_NUMBER" --arg ts "$CURRENT_TIMESTAMP" '. + {($pr): $ts}' > "${DRAFT_PRS_FILE}.tmp"
+              mv "${DRAFT_PRS_FILE}.tmp" "$DRAFT_PRS_FILE"
+            done
+          fi
+
+          if [ -n "$STABLE_BACKPORT_PRS" ]; then
+            IFS=',' read -ra STABLE_BACKPORT_ARRAY <<< "$STABLE_BACKPORT_PRS"
+            for PR_NUMBER in "${STABLE_BACKPORT_ARRAY[@]}"; do
+              PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+              cat "$STABLE_BACKPORT_PRS_FILE" | jq --arg pr "$PR_NUMBER" --arg ts "$CURRENT_TIMESTAMP" '. + {($pr): $ts}' > "${STABLE_BACKPORT_PRS_FILE}.tmp"
+              mv "${STABLE_BACKPORT_PRS_FILE}.tmp" "$STABLE_BACKPORT_PRS_FILE"
+            done
+          fi
+
+          SEVEN_DAYS_AGO=$(date -u -d '7 days ago' +"%Y-%m-%dT%H:%M:%SZ")
+
+          RECENT_MERGED_PRS=""
+          if [ -f "$MERGED_PRS_FILE" ]; then
+            RECENT_PRS=$(cat "$MERGED_PRS_FILE" | jq -r --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | map(.key) | join(",")')
+            [ "$RECENT_PRS" != "" ] && [ "$RECENT_PRS" != "null" ] && RECENT_MERGED_PRS="$RECENT_PRS"
+            cat "$MERGED_PRS_FILE" | jq --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | from_entries' > "${MERGED_PRS_FILE}.tmp"
+            mv "${MERGED_PRS_FILE}.tmp" "$MERGED_PRS_FILE"
+          fi
+
+          RECENT_CLOSED_PRS=""
+          if [ -f "$CLOSED_PRS_FILE" ]; then
+            RECENT_PRS=$(cat "$CLOSED_PRS_FILE" | jq -r --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | map(.key) | join(",")')
+            [ "$RECENT_PRS" != "" ] && [ "$RECENT_PRS" != "null" ] && RECENT_CLOSED_PRS="$RECENT_PRS"
+            cat "$CLOSED_PRS_FILE" | jq --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | from_entries' > "${CLOSED_PRS_FILE}.tmp"
+            mv "${CLOSED_PRS_FILE}.tmp" "$CLOSED_PRS_FILE"
+          fi
+
+          RECENT_DRAFT_PRS=""
+          if [ -f "$DRAFT_PRS_FILE" ]; then
+            RECENT_PRS=$(cat "$DRAFT_PRS_FILE" | jq -r --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | map(.key) | join(",")')
+            [ "$RECENT_PRS" != "" ] && [ "$RECENT_PRS" != "null" ] && RECENT_DRAFT_PRS="$RECENT_PRS"
+            cat "$DRAFT_PRS_FILE" | jq --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | from_entries' > "${DRAFT_PRS_FILE}.tmp"
+            mv "${DRAFT_PRS_FILE}.tmp" "$DRAFT_PRS_FILE"
+          fi
+
+          RECENT_STABLE_BACKPORT_PRS=""
+          if [ -f "$STABLE_BACKPORT_PRS_FILE" ]; then
+            RECENT_PRS=$(cat "$STABLE_BACKPORT_PRS_FILE" | jq -r --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | map(.key) | join(",")')
+            [ "$RECENT_PRS" != "" ] && [ "$RECENT_PRS" != "null" ] && RECENT_STABLE_BACKPORT_PRS="$RECENT_PRS"
+            cat "$STABLE_BACKPORT_PRS_FILE" | jq --arg cutoff "$SEVEN_DAYS_AGO" 'to_entries | map(select(.value > $cutoff)) | from_entries' > "${STABLE_BACKPORT_PRS_FILE}.tmp"
+            mv "${STABLE_BACKPORT_PRS_FILE}.tmp" "$STABLE_BACKPORT_PRS_FILE"
+          fi
+
+          echo "## Currently Installed PRs" > /tmp/pr_section.md
+          echo "" >> /tmp/pr_section.md
+
+          if [ -n "$UNMERGED_PRS" ]; then
+            echo "The following PRs are automatically merged into this fork:" >> /tmp/pr_section.md
+            echo "" >> /tmp/pr_section.md
+
+            IFS=',' read -ra PR_ARRAY <<< "$UNMERGED_PRS"
+            for ENTRY in "${PR_ARRAY[@]}"; do
+              ENTRY=$(echo "$ENTRY" | xargs)
+              if [[ "$ENTRY" == local:* ]]; then
+                BRANCH_NAME="${ENTRY#local:}"
+                echo "- Local fix branch: \`$BRANCH_NAME\`" >> /tmp/pr_section.md
+              elif [[ "$ENTRY" == pr:* ]]; then
+                LOCAL_PR_NUMBER="${ENTRY#pr:}"
+                echo "- Local Forgejo PR #$LOCAL_PR_NUMBER" >> /tmp/pr_section.md
+              else
+                echo "- [Upstream PR #$ENTRY](https://github.com/jellyfin/jellyfin-web/pull/$ENTRY)" >> /tmp/pr_section.md
+              fi
+            done
+
+            if [ -n "$RECENT_MERGED_PRS" ] || [ -n "$RECENT_CLOSED_PRS" ] || [ -n "$RECENT_DRAFT_PRS" ] || [ -n "$RECENT_STABLE_BACKPORT_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "### Recently Removed PRs (Last 7 Days)" >> /tmp/pr_section.md
+            fi
+
+            if [ -n "$RECENT_MERGED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ✅ Merged Upstream" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they have been merged into upstream Jellyfin Web:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra MERGED_ARRAY <<< "$RECENT_MERGED_PRS"
+              for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (merged on $MERGE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_CLOSED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ❌ Closed Without Merging" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were closed without being merged:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra CLOSED_ARRAY <<< "$RECENT_CLOSED_PRS"
+              for PR_NUMBER in "${CLOSED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                CLOSE_DATE=$(cat "$CLOSED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (closed on $CLOSE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_DRAFT_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### 📝 Moved to Draft" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were moved to draft status:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra DRAFT_ARRAY <<< "$RECENT_DRAFT_PRS"
+              for PR_NUMBER in "${DRAFT_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                DRAFT_DATE=$(cat "$DRAFT_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (became draft on $DRAFT_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_STABLE_BACKPORT_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### 🏷️  Tagged as Stable Backport" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were tagged with 'stable backport':" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra STABLE_BACKPORT_ARRAY <<< "$RECENT_STABLE_BACKPORT_PRS"
+              for PR_NUMBER in "${STABLE_BACKPORT_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                BACKPORT_DATE=$(cat "$STABLE_BACKPORT_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (tagged on $BACKPORT_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+          else
+            echo "🎉 All PRs have been merged upstream or closed! This fork is now clean and matches the upstream Jellyfin Web repository." >> /tmp/pr_section.md
+            echo "" >> /tmp/pr_section.md
+
+            if [ -n "$RECENT_MERGED_PRS" ] || [ -n "$RECENT_CLOSED_PRS" ] || [ -n "$RECENT_DRAFT_PRS" ] || [ -n "$RECENT_STABLE_BACKPORT_PRS" ]; then
+              echo "### Recently Removed PRs (Last 7 Days)" >> /tmp/pr_section.md
+            fi
+
+            if [ -n "$RECENT_MERGED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ✅ Merged Upstream" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they have been merged into upstream Jellyfin Web:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra MERGED_ARRAY <<< "$RECENT_MERGED_PRS"
+              for PR_NUMBER in "${MERGED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                MERGE_DATE=$(cat "$MERGED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (merged on $MERGE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_CLOSED_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### ❌ Closed Without Merging" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were closed without being merged:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra CLOSED_ARRAY <<< "$RECENT_CLOSED_PRS"
+              for PR_NUMBER in "${CLOSED_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                CLOSE_DATE=$(cat "$CLOSED_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (closed on $CLOSE_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_DRAFT_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### 📝 Moved to Draft" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were moved to draft status:" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra DRAFT_ARRAY <<< "$RECENT_DRAFT_PRS"
+              for PR_NUMBER in "${DRAFT_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                DRAFT_DATE=$(cat "$DRAFT_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (became draft on $DRAFT_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+
+            if [ -n "$RECENT_STABLE_BACKPORT_PRS" ]; then
+              echo "" >> /tmp/pr_section.md
+              echo "#### 🏷️  Tagged as Stable Backport" >> /tmp/pr_section.md
+              echo "The following PRs were automatically removed as they were tagged with 'stable backport':" >> /tmp/pr_section.md
+              echo "" >> /tmp/pr_section.md
+              IFS=',' read -ra STABLE_BACKPORT_ARRAY <<< "$RECENT_STABLE_BACKPORT_PRS"
+              for PR_NUMBER in "${STABLE_BACKPORT_ARRAY[@]}"; do
+                PR_NUMBER=$(echo "$PR_NUMBER" | xargs)
+                BACKPORT_DATE=$(cat "$STABLE_BACKPORT_PRS_FILE" | jq -r --arg pr "$PR_NUMBER" '.[$pr] // empty' | cut -d'T' -f1)
+                echo "- ~~[Upstream PR #$PR_NUMBER](https://github.com/jellyfin/jellyfin-web/pull/$PR_NUMBER)~~ (tagged on $BACKPORT_DATE)" >> /tmp/pr_section.md
+              done
+            fi
+          fi
+
+          echo "" >> /tmp/pr_section.md
+          echo "---" >> /tmp/pr_section.md
+
+          python3 <<'EOF'
+          import re
+
+          with open('README.md', 'r') as f:
+              readme_content = f.read()
+
+          with open('/tmp/pr_section.md', 'r') as f:
+              pr_section = f.read()
+
+          pattern = r'## Currently Installed PRs.*?^---$'
+
+          if re.search(pattern, readme_content, re.MULTILINE | re.DOTALL):
+              new_readme = re.sub(pattern, pr_section.rstrip(), readme_content, flags=re.MULTILINE | re.DOTALL)
+          else:
+              lines = readme_content.split('\n')
+              header = '\n'.join(lines[:3])
+              rest = '\n'.join(lines[3:])
+              new_readme = f"{header}\n{pr_section}{rest}"
+
+          with open('README.md', 'w') as f:
+              f.write(new_readme)
+
+          print("README updated successfully!")
+          EOF
+
+          COMMIT_MSG="Update README with current PR list"
+          CHANGES=""
+          [ -n "$RECENT_MERGED_PRS" ] && CHANGES="${CHANGES}merged: $RECENT_MERGED_PRS, "
+          [ -n "$RECENT_CLOSED_PRS" ] && CHANGES="${CHANGES}closed: $RECENT_CLOSED_PRS, "
+          [ -n "$RECENT_DRAFT_PRS" ] && CHANGES="${CHANGES}draft: $RECENT_DRAFT_PRS, "
+          [ -n "$RECENT_STABLE_BACKPORT_PRS" ] && CHANGES="${CHANGES}stable-backport: $RECENT_STABLE_BACKPORT_PRS, "
+
+          if [ -n "$CHANGES" ]; then
+            CHANGES="${CHANGES%, }"
+            COMMIT_MSG="$COMMIT_MSG ($CHANGES)"
+          fi
+
+          git add README.md "$MERGED_PRS_FILE" "$CLOSED_PRS_FILE" "$DRAFT_PRS_FILE" "$STABLE_BACKPORT_PRS_FILE"
+          git commit -m "$COMMIT_MSG" || echo "No changes to commit"
+
+      - name: Update PR list file
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        run: |
+          PR_LIST_FILE=".forgejo/pr-list.txt"
+
+          CURRENT_PR_NUMBERS="${{ github.event.inputs.pr_numbers }}"
+          if [ -z "$CURRENT_PR_NUMBERS" ]; then
+            if [ -f "$PR_LIST_FILE" ]; then
+              CURRENT_PR_NUMBERS=$(grep -v '^#' "$PR_LIST_FILE" | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+            fi
+          fi
+
+          MERGED_UPSTREAM_PRS="${{ steps.check_pr_status.outputs.merged_upstream_prs }}"
+          CLOSED_PRS="${{ steps.check_pr_status.outputs.closed_prs }}"
+          DRAFT_PRS="${{ steps.check_pr_status.outputs.draft_prs }}"
+          STABLE_BACKPORT_PRS="${{ steps.check_pr_status.outputs.stable_backport_prs }}"
+
+          PRS_TO_REMOVE=""
+          for pr_list in "$MERGED_UPSTREAM_PRS" "$CLOSED_PRS" "$DRAFT_PRS" "$STABLE_BACKPORT_PRS"; do
+            if [ -n "$pr_list" ]; then
+              if [ -z "$PRS_TO_REMOVE" ]; then
+                PRS_TO_REMOVE="$pr_list"
+              else
+                PRS_TO_REMOVE="$PRS_TO_REMOVE,$pr_list"
+              fi
+            fi
+          done
+
+          if [ -n "$PRS_TO_REMOVE" ]; then
+            echo "PRs to be removed: $PRS_TO_REMOVE"
+
+            IFS=',' read -ra CURRENT_ARRAY <<< "$CURRENT_PR_NUMBERS"
+            IFS=',' read -ra REMOVE_ARRAY <<< "$PRS_TO_REMOVE"
+
+            NEW_PR_LIST=""
+            REMOVED_COUNT=0
+
+            for PR in "${CURRENT_ARRAY[@]}"; do
+              PR=$(echo $PR | xargs)
+              SHOULD_REMOVE=false
+
+              for REMOVE_PR in "${REMOVE_ARRAY[@]}"; do
+                REMOVE_PR=$(echo $REMOVE_PR | xargs)
+                if [ "$PR" == "$REMOVE_PR" ]; then
+                  SHOULD_REMOVE=true
+                  REMOVED_COUNT=$((REMOVED_COUNT + 1))
+                  echo "  Removing PR $PR from list"
+                  break
+                fi
+              done
+
+              if [ "$SHOULD_REMOVE" == "false" ]; then
+                if [ -z "$NEW_PR_LIST" ]; then
+                  NEW_PR_LIST="$PR"
+                else
+                  NEW_PR_LIST="$NEW_PR_LIST,$PR"
+                fi
+              fi
+            done
+
+            if [ "$NEW_PR_LIST" != "$CURRENT_PR_NUMBERS" ]; then
+              echo "Updating $PR_LIST_FILE (removed $REMOVED_COUNT PR(s))"
+              printf '# PR list for jellyfin-web-unstable\n# Three formats supported:\n#   12345              = GitHub upstream PR (fetched from github.com/jellyfin/jellyfin-web)\n#   local:branch/name  = Local Forgejo branch (fetched by branch name from this repo)\n#   pr:N               = Local Forgejo PR by number (fetched via refs/pull/N/head)\n#\n# Entries are applied in the ORDER LISTED — you can interleave local:/pr: entries\n# between upstream PRs to apply fixes at the right point in the stack.\n# local: and pr: entries are NEVER auto-removed — manage them manually.\n' > "$PR_LIST_FILE"
+              echo "$NEW_PR_LIST" | tr ',' '\n' | grep -v '^$' | xargs -I{} echo {} >> "$PR_LIST_FILE"
+
+              git add "$PR_LIST_FILE"
+              echo "PR_LIST_UPDATED=true" >> $GITHUB_ENV
+            else
+              echo "No PRs to remove from the list"
+            fi
+          else
+            echo "No PRs were merged upstream or closed - keeping current list intact"
+          fi
+
+      - name: Push changes
+        if: steps.reset_upstream.outputs.reset_success == 'true'
+        run: |
+          rm -f pr_status.txt merge_results.txt prs_to_merge.txt
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto-update PR list: removed merged/closed PRs"
+          fi
+
+          git push --force origin master
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.reset_upstream.outputs.reset_success }}" == "true" ]; then
+            echo "✅ Successfully reset to upstream/master and applied patches + PRs" >> $GITHUB_STEP_SUMMARY
+            echo "🔄 All .forgejo/ files restored and preserved automatically" >> $GITHUB_STEP_SUMMARY
+
+            if [ "${{ steps.apply_patches.outputs.patches_applied }}" == "true" ]; then
+              echo "✨ Custom patches applied successfully" >> $GITHUB_STEP_SUMMARY
+            elif [ "${{ steps.apply_patches.outputs.patches_applied }}" == "false" ]; then
+              echo "⚠️ Some patches failed to apply - manual review needed" >> $GITHUB_STEP_SUMMARY
+              if [ -f "/tmp/failed_patches_summary.txt" ]; then
+                echo "" >> $GITHUB_STEP_SUMMARY
+                echo "### Failed Patches" >> $GITHUB_STEP_SUMMARY
+                echo "| Patch File | Reason |" >> $GITHUB_STEP_SUMMARY
+                echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+                while IFS='|' read -r patch_name file_path reason; do
+                  echo "| \`$patch_name\` | $reason |" >> $GITHUB_STEP_SUMMARY
+                done < /tmp/failed_patches_summary.txt
+              fi
+            fi
+          else
+            echo "❌ Failed to reset to upstream/master" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "pr_status.txt" ]; then
+            cat pr_status.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f "merge_results.txt" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            cat merge_results.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -n "${{ env.PR_LIST_UPDATED }}" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## PR List Update" >> $GITHUB_STEP_SUMMARY
+            echo "Automatically removed merged/closed PRs from the workflow file" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Send Discord notification on failure
+        if: failure() && env.DISCORD_WEBHOOK != ''
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"❌ jellyfin-web-unstable reset workflow failed!\nSee workflow logs for details.\nPRs attempted: ${{ github.event.inputs.pr_numbers || 'see .forgejo/pr-list.txt' }}\nLogs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK"
+
+      - name: Send Discord notification on success
+        if: success() && env.DISCORD_WEBHOOK != ''
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          PATCHES_MSG=""
+          [ "${{ steps.apply_patches.outputs.patches_applied }}" = "true" ] && PATCHES_MSG="\n✨ Custom patches applied"
+          PR_LIST_MSG=""
+          [ -n "${{ env.PR_LIST_UPDATED }}" ] && PR_LIST_MSG="\n📝 PR list auto-updated - merged/closed PRs removed"
+
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"✅ jellyfin-web-unstable reset to upstream/master!\n🔄 All .forgejo/ files preserved automatically${PATCHES_MSG}${PR_LIST_MSG}\n📋 README updated with current PR status\n🔧 Conflict resolution: ${{ github.event.inputs.conflict_resolution_strategy || 'auto-head' }}\nSummary: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK"
