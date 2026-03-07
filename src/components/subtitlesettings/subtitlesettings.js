@@ -39,6 +39,27 @@ function getSubtitleAppearanceObject(context) {
     };
 }
 
+function hasUserModifiedSettings(user, appSettings) {
+    // Check if user has explicitly set subtitle mode
+    const hasSubtitleMode = user.Configuration.SubtitleMode !== undefined &&
+                           user.Configuration.SubtitleMode !== null &&
+                           user.Configuration.SubtitleMode !== '';
+
+    // Check if user has explicitly set burn-in setting
+    const burnInSetting = appSettings.get('subtitleburnin');
+    const hasBurnInSetting = burnInSetting !== null && burnInSetting !== undefined;
+
+    // Check if user has explicitly set always burn-in setting
+    const alwaysBurnInSetting = appSettings.get('alwaysburnintranscoding');
+    const hasAlwaysBurnInSetting = alwaysBurnInSetting !== null && alwaysBurnInSetting !== undefined;
+
+    return {
+        subtitleMode: hasSubtitleMode,
+        burnIn: hasBurnInSetting,
+        alwaysBurnIn: hasAlwaysBurnInSetting
+    };
+}
+
 function loadForm(context, user, userSettings, appearanceSettings, apiClient) {
     apiClient.getCultures().then(function (allCultures) {
         if (appHost.supports(AppFeature.SubtitleBurnIn) && user.Policy.EnableVideoPlaybackTranscoding) {
@@ -50,7 +71,13 @@ function loadForm(context, user, userSettings, appearanceSettings, apiClient) {
         settingsHelper.populateLanguages(selectSubtitleLanguage, allCultures);
 
         selectSubtitleLanguage.value = user.Configuration.SubtitleLanguagePreference || '';
-        context.querySelector('#selectSubtitlePlaybackMode').value = user.Configuration.SubtitleMode || '';
+
+        // Check if user has modified settings
+        const userModifications = hasUserModifiedSettings(user, appSettings);
+
+        // Set subtitle mode - default to 'Smart' if not modified by user
+        context.querySelector('#selectSubtitlePlaybackMode').value =
+            userModifications.subtitleMode ? user.Configuration.SubtitleMode : 'Smart';
 
         context.querySelector('#selectSubtitlePlaybackMode').dispatchEvent(new CustomEvent('change', {}));
 
@@ -65,11 +92,18 @@ function loadForm(context, user, userSettings, appearanceSettings, apiClient) {
         context.querySelector('#selectFont').value = appearanceSettings.font || '';
         context.querySelector('#sliderVerticalPosition').value = appearanceSettings.verticalPosition;
 
-        context.querySelector('#selectSubtitleBurnIn').value = appSettings.get('subtitleburnin') || '';
+        // Set burn-in mode - default to 'Auto' (empty string) if not modified by user
+        const burnInValue = appSettings.get('subtitleburnin');
+        context.querySelector('#selectSubtitleBurnIn').value =
+            userModifications.burnIn ? burnInValue : '';
+
         context.querySelector('#chkSubtitleRenderPgs').checked = appSettings.get('subtitlerenderpgs') === 'true';
 
         context.querySelector('#selectSubtitleBurnIn').dispatchEvent(new CustomEvent('change', {}));
-        context.querySelector('#chkAlwaysBurnInSubtitleWhenTranscoding').checked = appSettings.alwaysBurnInSubtitleWhenTranscoding();
+
+        // Set always burn-in - default to true if not modified by user
+        context.querySelector('#chkAlwaysBurnInSubtitleWhenTranscoding').checked =
+            userModifications.alwaysBurnIn ? appSettings.alwaysBurnInSubtitleWhenTranscoding() : true;
 
         onAppearanceFieldChange({
             target: context.querySelector('#selectTextSize')
