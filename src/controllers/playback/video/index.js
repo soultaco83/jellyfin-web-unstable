@@ -27,6 +27,7 @@ import '../../../elements/emby-ratingbutton/emby-ratingbutton';
 import '../../../styles/videoosd.scss';
 import shell from '../../../scripts/shell';
 import SubtitleSync from '../../../components/subtitlesync/subtitlesync';
+import AspectRatioScale from '../../../components/aspectratioscale/aspectratioscale';
 import { appRouter } from '../../../components/router/appRouter';
 import loading from '../../../components/loading/loading';
 import { ServerConnections } from 'lib/jellyfin-apiclient';
@@ -381,6 +382,8 @@ export default function (view) {
                 _focus(focusElement);
             }
             toggleSubtitleSync();
+            console.log('toggleAspectRatioScale from showMainOsdControls');
+            toggleAspectRatioScale('autoOsdShow');
         } else if (currentVisibleMenu === 'osd' && !layoutManager.mobile) {
             _focus(focusElement);
         }
@@ -395,6 +398,8 @@ export default function (view) {
             elem.addEventListener(transitionEndEventName, onHideAnimationComplete);
             currentVisibleMenu = null;
             toggleSubtitleSync('hide');
+            console.log('toggleAspectRatioScale from hideMainOsdControls');
+            toggleAspectRatioScale('autoOsdHide');
 
             // Firefox does not blur by itself
             if (osdBottomElement.contains(document.activeElement)
@@ -1075,6 +1080,9 @@ export default function (view) {
                 playbackManager.enableShowingSubtitleOffset(player);
                 toggleSubtitleSync();
             }
+        } else if (selectedOption === 'aspectratiocustom') {
+            console.log('toggleAspectRatioScale from onSettingsOption');
+            toggleAspectRatioScale('forceToShow'); // forceToShow means it was opened via settings menu
         }
     }
 
@@ -1320,6 +1328,27 @@ export default function (view) {
         if (subtitleSyncOverlay) {
             subtitleSyncOverlay.destroy();
             subtitleSyncOverlay = null;
+        }
+    }
+
+    /**
+     * @param {'autoOsdHide' | 'autoOsdShow' | 'forceToHide' | 'forceToShow'} action 
+     */
+    function toggleAspectRatioScale(action) {
+        console.log('toggleAspectRatioScale called with', action);
+        const player = currentPlayer;
+        if (aspectRatioScaleOverlay) {
+            aspectRatioScaleOverlay.toggle(action);
+        } else if (player && action === 'forceToShow') { // create new instance only if it was via settings menu
+            aspectRatioScaleOverlay = new AspectRatioScale(player);
+            aspectRatioScaleOverlay.toggle(action);
+        }
+    }
+
+    function destroyAspectRatioScale() {
+        if (aspectRatioScaleOverlay) {
+            aspectRatioScaleOverlay.destroy();
+            aspectRatioScaleOverlay = null;
         }
     }
 
@@ -1919,6 +1948,7 @@ export default function (view) {
 
         destroyStats();
         destroySubtitleSync();
+        destroyAspectRatioScale();
     });
     let lastPointerDown = 0;
     /* eslint-disable-next-line compat/compat */
