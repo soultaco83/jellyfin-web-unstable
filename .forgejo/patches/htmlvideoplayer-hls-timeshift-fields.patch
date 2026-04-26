@@ -1,0 +1,20 @@
+diff --git a/src/plugins/htmlVideoPlayer/plugin.js b/src/plugins/htmlVideoPlayer/plugin.js
+index 60333f5116b5..9ee44055bd15 100644
+--- a/src/plugins/htmlVideoPlayer/plugin.js
++++ b/src/plugins/htmlVideoPlayer/plugin.js
+@@ -322,6 +322,14 @@ import { getIncludeCorsCredentials } from '../../utils/jellyfin-apiclient/apiCli
+     /**
+      * @type {any | undefined}
+      */
+-    #lastProfile;
++    #lastProfile;
++    /**
++     * @type {number}
++     */
++    #hlsStreamTimeShift = 0;
++    /**
++     * @type {number}
++     */
++    #currentSubtitleCorrectionOffset = 0;
+
+     constructor() {

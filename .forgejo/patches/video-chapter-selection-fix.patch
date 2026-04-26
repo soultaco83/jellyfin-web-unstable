@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Thu, 19 Mar 2026 00:00:00 -0500
+Subject: [PATCH] Fix chapterSelectionOptions ReferenceError in video player
+
+- Declare chapterSelectionOptions at module scope (was never declared,
+  causing ReferenceError when showChapterSelection() was called)
+- Reset chapterSelectionOptions to null when item has no chapters
+- Add early return guard in showChapterSelection() when no chapters available
+
+This fixes: ReferenceError: chapterSelectionOptions is not defined
+    at updateDisplayItem (video/index.js)
+
+diff --git a/src/controllers/playback/video/index.js b/src/controllers/playback/video/index.js
+index 90ee2a280..56e7aa6dd 100644
+--- a/src/controllers/playback/video/index.js
++++ b/src/controllers/playback/video/index.js
+@@ -157,6 +157,8 @@ export default function (view) {
+                     id: chapter.StartPositionTicks
+                 };
+             });
++        } else {
++            chapterSelectionOptions = null;
+         }
+
+         // Update trickplay data
+@@ -1281,6 +1283,8 @@ export default function (view) {
+         // For MKV files that use one or more of these features it's not guaranteed that chapters are correctly ordered or displayed.
+         // If support of one of these features is added in the future, it's maybe necessary to adjust the chapter handling.
+
++        if (!chapterSelectionOptions) return;
++
+         const player = currentPlayer;
+         const currentTicks = playbackManager.getCurrentTicks(player);
+         
