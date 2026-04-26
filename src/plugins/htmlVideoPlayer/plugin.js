@@ -406,6 +406,7 @@ export class HtmlVideoPlayer {
         this.#timeUpdated = false;
 
         this.#currentTime = null;
+        this.#detectedAspectRatio = this.#getDetectedAspectRatio(options);
 
         if (options.resetSubtitleOffset !== false) this.resetSubtitleOffset();
 
@@ -910,6 +911,8 @@ export class HtmlVideoPlayer {
         setBackdropTransparency(TRANSPARENCY_LEVEL.None);
         document.body.classList.remove('hide-scroll');
 
+        this.#detectedAspectRatio = null;
+
         const videoElement = this.#mediaElement;
 
         if (videoElement) {
@@ -1068,6 +1071,10 @@ export class HtmlVideoPlayer {
 
                 this.onStartedAndNavigatedToOsd();
             }
+        }
+        // Reapply detected aspect ratio now that video dimensions are available
+        if (this.getAspectRatio() === 'detected') {
+            this.#applyAspectRatio('detected');
         }
         Events.trigger(this, 'playing');
     };
@@ -2182,14 +2189,28 @@ export class HtmlVideoPlayer {
     }
 
     getAspectRatio() {
-        return appSettings.aspectRatio() || 'auto';
+        const saved = appSettings.aspectRatio() || 'auto';
+        // Fall back to auto if detected was saved but isn't available for this file
+        if (saved === 'detected' && this.#detectedAspectRatio === null) {
+            return 'auto';
+        }
+        return saved;
     }
 
     getSupportedAspectRatios() {
-        return [{
+        const ratios = [{
             name: globalize.translate('Auto'),
             id: 'auto'
-        }, {
+        }];
+
+        if (this.#detectedAspectRatio !== null) {
+            ratios.push({
+                name: globalize.translate('AspectRatioDetected'),
+                id: 'detected'
+            });
+        }
+
+        ratios.push({
             name: globalize.translate('AspectRatioCover'),
             id: 'cover'
         }, {
