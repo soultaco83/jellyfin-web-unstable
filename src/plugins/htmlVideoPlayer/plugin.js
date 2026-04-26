@@ -374,6 +374,14 @@ export class HtmlVideoPlayer {
      * @type {any | undefined}
      */
     #lastProfile;
+    /**
+     * @type {number}
+     */
+    #hlsStreamTimeShift = 0;
+    /**
+     * @type {number}
+     */
+    #currentSubtitleCorrectionOffset = 0;
 
     constructor() {
         if (browser.edgeUwp) {
