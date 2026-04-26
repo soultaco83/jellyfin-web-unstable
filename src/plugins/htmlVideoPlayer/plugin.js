@@ -925,6 +925,7 @@ export class HtmlVideoPlayer {
             videoElement.removeEventListener('click', this.onClick);
             videoElement.removeEventListener('dblclick', this.onDblClick);
             videoElement.removeEventListener('waiting', this.onWaiting);
+            videoElement.removeEventListener('canplay', this.onCanPlay);
             videoElement.removeEventListener('error', this.onError); // bound in htmlMediaHelper
 
             resetSrc(videoElement);
@@ -1120,6 +1121,10 @@ export class HtmlVideoPlayer {
 
     onWaiting = () => {
         Events.trigger(this, 'waiting');
+    };
+
+    onCanPlay = () => {
+        Events.trigger(this, 'canplay');
     };
 
     /**
@@ -1715,6 +1720,7 @@ export class HtmlVideoPlayer {
                 videoElement.addEventListener('click', this.onClick);
                 videoElement.addEventListener('dblclick', this.onDblClick);
                 videoElement.addEventListener('waiting', this.onWaiting);
+                videoElement.addEventListener('canplay', this.onCanPlay);
                 if (options.backdropUrl) {
                     videoElement.poster = options.backdropUrl;
                 }
