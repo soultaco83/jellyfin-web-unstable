@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 14 May 2026 00:00:00 -0500
+Subject: [PATCH] Fix duplicate TICKS_PER_SECOND import from PR #6735
+
+PR #6735 added a second import of TICKS_PER_SECOND that conflicts with
+the existing import at line 30, causing a Babel build error.
+
+diff --git a/src/components/playback/playbackmanager.js b/src/components/playback/playbackmanager.js
+--- a/src/components/playback/playbackmanager.js
++++ b/src/components/playback/playbackmanager.js
+@@ -33,7 +33,6 @@ import { bindSkipSegment } from './skipsegment.ts';
+ import { getMediaError } from 'utils/mediaError';
+ import { toApi } from 'utils/jellyfin-apiclient/compat';
+ import { bindSkipSegment } from './skipsegment.ts';
+-import { TICKS_PER_SECOND } from 'constants/time';
+
+ const UNLIMITED_ITEMS = -1;
+
