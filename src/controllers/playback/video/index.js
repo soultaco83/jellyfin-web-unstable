@@ -157,6 +157,8 @@ export default function (view) {
                     id: chapter.StartPositionTicks
                 };
             });
+        } else {
+            chapterSelectionOptions = null;
         }
 
         // Update trickplay data
@@ -1278,6 +1280,8 @@ export default function (view) {
         // At the moment Jellyfin doesn't support most of MKV's chapter features (hidden- and standard-flags, multiple Editions, linked chapters, sub-chapters, multi language support, ...).
         // For MKV files that use one or more of these features it's not guaranteed that chapters are correctly ordered or displayed.
         // If support of one of these features is added in the future, it's maybe necessary to adjust the chapter handling.
+
+        if (!chapterSelectionOptions) return;
 
         const player = currentPlayer;
         const currentTicks = playbackManager.getCurrentTicks(player);

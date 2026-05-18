@@ -16,7 +16,7 @@ import DirectoryBrowser from '../components/directorybrowser/directorybrowser';
 import dialogHelper from '../components/dialogHelper/dialogHelper';
 import itemIdentifier from '../components/itemidentifier/itemidentifier';
 import { getLocationSearch } from './url.ts';
-import { queryClient } from './query/queryClient';
+import { queryClient, persister } from './query/queryClient';
 
 export function getCurrentUser() {
     return window.ApiClient.getCurrentUser(false);
@@ -110,6 +110,51 @@ export function logout() {
         appHost.supports(AppFeature.MultiServer) ?
             navigate('selectserver') : navigate('login');
     });
+}
+
+async function deleteIndexedDB(name) {
+    return new Promise((resolve) => {
+        const req = indexedDB.deleteDatabase(name);
+        req.onsuccess = resolve;
+        req.onerror = resolve;
+        req.onblocked = resolve;
+    });
+}
+
+async function clearAllIndexedDB() {
+    try {
+        if (typeof indexedDB.databases === 'function') {
+            // Chromium-based: Chrome, Brave, Edge, Opera
+            const dbs = await indexedDB.databases();
+            await Promise.all(dbs.map(db => deleteIndexedDB(db.name)));
+        } else {
+            // Firefox: no databases() API, delete known DB names
+            await deleteIndexedDB('keyval-store');
+        }
+    } catch {
+        // Last resort: remove just the query cache entry
+        await persister.removeClient();
+    }
+}
+
+export async function clearSiteData() {
+    localStorage.clear();
+    sessionStorage.clear();
+
+    if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(key => caches.delete(key)));
+    }
+
+    // Unregister service workers so a fresh install happens on reload
+    if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(reg => reg.unregister()));
+    }
+
+    await clearAllIndexedDB();
+
+    window.location.reload();
 }
 
 export function getPluginUrl(name) {
@@ -236,6 +281,7 @@ export const pageIdOn = function(eventName, id, fn) {
 const Dashboard = {
     alert,
     capabilities,
+    clearSiteData,
     confirm,
     getPluginUrl,
     getConfigurationResourceUrl,

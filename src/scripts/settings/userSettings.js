@@ -177,8 +177,7 @@ export class UserSettings {
             return this.set('preferFmp4HlsContainer', val.toString(), false);
         }
 
-        // Enable it by default only for the platforms that play fMP4 for sure.
-        return toBoolean(this.get('preferFmp4HlsContainer', false), browser.safari || browser.firefox || browser.chrome || browser.edgeChromium);
+        return toBoolean(this.get('preferFmp4HlsContainer', false), false);
     }
 
     /**
@@ -386,7 +385,7 @@ export class UserSettings {
             return this.set('useEpisodeImagesInNextUpAndResume', val.toString(), true);
         }
 
-        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), false);
+        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), true);
     }
 
     /**
