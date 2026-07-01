@@ -2357,7 +2357,9 @@ export class HtmlVideoPlayer {
         }, {
             name: globalize.translate('Custom'),
             id: 'custom'
-        }];
+        });
+
+        return ratios;
     }
 
     togglePictureInPicture() {

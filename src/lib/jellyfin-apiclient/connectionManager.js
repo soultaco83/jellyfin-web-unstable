@@ -820,6 +820,7 @@ export default class ConnectionManager {
      * @returns {import('@jellyfin/sdk').Api|undefined}
      */
     getApi(serverId) {
+<<<<<<< ours
         // If no serverId is provided, try to use the last used server
         if (!serverId) {
             const server = this.getLastUsedServer();
@@ -831,6 +832,11 @@ export default class ConnectionManager {
             return undefined;
         }
 
+=======
+        if (!serverId) {
+            return undefined;
+        }
+>>>>>>> theirs
         const apiClient = this.getApiClient(serverId);
         apiClient._sdk ??= toApi(apiClient);
         return apiClient._sdk;
