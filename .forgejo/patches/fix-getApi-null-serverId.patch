@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Fri, 20 Jun 2026 13:26:00 -0500
+Subject: [PATCH] Fix getApi crash with null serverId on fresh browser load
+
+When a user clears cookies and reloads, stored credentials contain a
+server entry without an Id field (only ManualAddress). During
+initialization, initApiClient() calls addApiClient(), which fires the
+'apiclientcreated' event. The handler in ServerConnections.js calls
+this.getApi(apiClient.serverId()), but serverId() returns undefined
+because the server hasn't fetched /System/Info/Public yet.
+
+getApi() passed the null serverId to getApiClient(), which threw
+"item or serverId cannot be null" -- an uncaught exception that halted
+all app initialization, leaving the user stuck on the loading logo.
+
+Fix: Add a null guard to getApi() so it returns undefined gracefully.
+All downstream callers already handle undefined return values with
+guard clauses, allowing the app to continue initializing.
+
+diff --git a/src/lib/jellyfin-apiclient/connectionManager.js b/src/lib/jellyfin-apiclient/connectionManager.js
+index f156db8952..e2385891d7 100644
+--- a/src/lib/jellyfin-apiclient/connectionManager.js
++++ b/src/lib/jellyfin-apiclient/connectionManager.js
+@@ -820,6 +820,9 @@ export default class ConnectionManager {
+      * @returns {import('@jellyfin/sdk').Api}
+      */
+     getApi(serverId) {
++        if (!serverId) {
++            return undefined;
++        }
+         const apiClient = this.getApiClient(serverId);
+         apiClient._sdk ??= toApi(apiClient);
+         return apiClient._sdk;

@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Fri, 30 May 2026 00:00:00 -0500
+Subject: [PATCH] Fix getSupportedAspectRatios syntax error in htmlVideoPlayer
+
+ratios.push() was closed with }] instead of }), causing a babel parse
+error. Also adds missing return ratios statement.
+
+---
+ src/plugins/htmlVideoPlayer/plugin.js | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/plugins/htmlVideoPlayer/plugin.js b/src/plugins/htmlVideoPlayer/plugin.js
+index 4f0c712f36..e58c864d81 100644
+--- a/src/plugins/htmlVideoPlayer/plugin.js
++++ b/src/plugins/htmlVideoPlayer/plugin.js
+@@ -2356,7 +2356,9 @@ export class HtmlVideoPlayer {
+         }, {
+             name: globalize.translate('Custom'),
+             id: 'custom'
+-        }];
++        });
++
++        return ratios;
+     }
+
+     togglePictureInPicture() {

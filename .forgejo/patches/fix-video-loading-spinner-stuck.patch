@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Fri, 20 Jun 2026 00:00:00 -0500
+Subject: [PATCH] Fix loading spinner stuck during active video playback
+
+- Added 'playing' event listener to hide loading spinner when
+  playback resumes after a buffer stall. Previously only 'canplay'
+  was listened to, but 'canplay' fires only once at initial load.
+- Added cleanup for 'waiting', 'canplay', and 'playing' event
+  listeners in releaseCurrentPlayer().
+
+This fixes: Jellyfin loading logo appearing in the middle of the
+  screen while video is actively playing (after a brief network
+  buffer underrun or adaptive bitrate quality switch).
+
+diff --git a/src/controllers/playback/video/index.js b/src/controllers/playback/video/index.js
+index d39d736b23..78d1b8c94c 100644
+--- a/src/controllers/playback/video/index.js
++++ b/src/controllers/playback/video/index.js
+@@ -629,6 +629,14 @@ export default function (view) {
+         loading.hide();
+     }
+
++    function onPlaying() {
++        if (loadingTimeout) {
++            clearTimeout(loadingTimeout);
++            loadingTimeout = null;
++        }
++        loading.hide();
++    }
++
+     function bindToPlayer(player) {
+         if (player !== currentPlayer) {
+             releaseCurrentPlayer();
+@@ -652,6 +660,7 @@ export default function (view) {
+         Events.on(player, 'endFetch', onEndFetch);
+         Events.on(player, 'waiting', onWaiting);
+         Events.on(player, 'canplay', onCanPlay);
++        Events.on(player, 'playing', onPlaying);
+         resetUpNextDialog();
+
+         if (player.isFetching) {
+@@ -682,6 +691,9 @@ export default function (view) {
+             Events.off(player, 'mediastreamschange', onMediaStreamsChanged);
+             Events.off(player, 'beginFetch', onBeginFetch);
+             Events.off(player, 'endFetch', onEndFetch);
++            Events.off(player, 'waiting', onWaiting);
++            Events.off(player, 'canplay', onCanPlay);
++            Events.off(player, 'playing', onPlaying);
+             currentPlayer = null;
+         }
+     }

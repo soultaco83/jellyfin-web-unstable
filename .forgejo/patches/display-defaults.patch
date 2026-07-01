@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Mon, 03 May 2026 00:00:00 -0500
+Subject: [PATCH] Default display settings for new users
+
+- Live TV defaults to Guide tab instead of Programs
+- Episode images enabled by default in Next Up and Continue Watching
+- Prefer fMP4-HLS Media Container disabled by default for broader device compatibility
+
+diff --git a/src/apps/experimental/features/libraries/constants/libraryRoutes.ts b/src/apps/experimental/features/libraries/constants/libraryRoutes.ts
+index 810c2f1a28..27ea5b8fd9 100644
+--- a/src/apps/experimental/features/libraries/constants/libraryRoutes.ts
++++ b/src/apps/experimental/features/libraries/constants/libraryRoutes.ts
+@@ -9,13 +9,13 @@ export const LibraryRoutes: LibraryRoute[] = [
+             {
+                 index: 0,
+                 label: 'Programs',
+-                view: LibraryTab.Programs,
+-                isDefault: true
++                view: LibraryTab.Programs
+             },
+             {
+                 index: 1,
+                 label: 'Guide',
+-                view: LibraryTab.Guide
++                view: LibraryTab.Guide,
++                isDefault: true
+             },
+             {
+                 index: 2,
+diff --git a/src/scripts/settings/userSettings.js b/src/scripts/settings/userSettings.js
+index 470f0d5d88..ca226d22a8 100644
+--- a/src/scripts/settings/userSettings.js
++++ b/src/scripts/settings/userSettings.js
+@@ -152,8 +152,7 @@ export class UserSettings {
+             return this.set('preferFmp4HlsContainer', val.toString(), false);
+         }
+
+-        // Enable it by default only for the platforms that play fMP4 for sure.
+-        return toBoolean(this.get('preferFmp4HlsContainer', false), browser.safari || browser.firefox || browser.chrome || browser.edgeChromium);
++        return toBoolean(this.get('preferFmp4HlsContainer', false), false);
+     }
+
+     /**
+@@ -361,7 +360,7 @@ export class UserSettings {
+             return this.set('useEpisodeImagesInNextUpAndResume', val.toString(), true);
+         }
+
+-        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), false);
++        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), true);
+     }
+
+     /**
