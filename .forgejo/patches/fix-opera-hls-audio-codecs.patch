@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Fri, 20 Jun 2026 05:00:00 -0500
+Subject: [PATCH] Fix Opera browser crash during video playback
+
+Opera is a Chromium-based browser that supports AC-3, E-AC-3, and
+Opus audio codecs in HLS streams, but getBaseProfileOptions() only
+checked for browser.chrome, browser.edgeChromium, and browser.firefox
+when deciding which codecs to keep enabled. Since Opera's user agent
+contains 'OPR/' (not 'Chrome/'), browser.opera is true and
+browser.chrome is false, causing Opera to fall through all positive
+checks and get AC-3, E-AC-3, and Opus disabled.
+
+This caused the server to serve mismatched codec configurations or
+unnecessarily transcode audio, resulting in decoder crashes that
+closed the entire browser window.
+
+Fix: Add browser.opera alongside browser.edgeChromium and browser.chrome
+in both codec-allow conditions, matching Opera's actual capabilities.
+
+diff --git a/src/components/apphost.js b/src/components/apphost.js
+index 000000000000..000000000000 100644
+--- a/src/components/apphost.js
++++ b/src/components/apphost.js
+@@ -33,7 +33,7 @@ function getBaseProfileOptions(item) {
+         if (browser.edge) {
+             disableHlsVideoAudioCodecs.push('mp3');
+         }
+-        if (!browser.edgeChromium) {
++        if (!(browser.edgeChromium || browser.opera)) {
+             disableHlsVideoAudioCodecs.push('ac3');
+             disableHlsVideoAudioCodecs.push('eac3');
+         }
+@@ -37,7 +37,7 @@ function getBaseProfileOptions(item) {
+             disableHlsVideoAudioCodecs.push('ac3');
+             disableHlsVideoAudioCodecs.push('eac3');
+         }
+-        if (!(browser.chrome || browser.edgeChromium || browser.firefox)) {
++        if (!(browser.chrome || browser.edgeChromium || browser.firefox || browser.opera)) {
+             disableHlsVideoAudioCodecs.push('opus');
+         }
+     }
