@@ -1,0 +1,77 @@
+From: Cline <cline@jellyfin.org>
+Subject: [PATCH] Fix subtitle off not persisting during playback
+
+Two fixes for the reported issue where turning subtitles off sometimes
+has no effect until a browser restart or show reload:
+
+1. playbackmanager.js: When the user selects "Off" (newStream is null),
+   always call changeStream() with SubtitleStreamIndex: -1 so that the
+   server-side transcoding session drops the subtitle burn-in.  Previously
+   changeStream was only called for Encode/Embed+Transcode delivery method
+   combinations; External subtitles and direct-play embed tracks could leave
+   the server still delivering subtitles.
+
+2. htmlVideoPlayer/plugin.js setCurrentTrackElement: Guard against
+   out-of-order promise resolution by storing a sequence number that
+   is incremented on each call and checked inside the .then() callback.
+   Without this, rapid on-off-on toggling can cause a stale "on" callback
+   to execute after a newer "off" callback, re-enabling subtitles.
+
+diff --git a/src/components/playback/playbackmanager.js b/src/components/playback/playbackmanager.js
+index d1c76655b4..02b4352e38 100644
+--- a/src/components/playback/playbackmanager.js
++++ b/src/components/playback/playbackmanager.js
+@@ -1533,11 +1533,12 @@ export class PlaybackManager {
+
+             const currentPlayMethod = self.playMethod(player);
+
+-            if (currentStream && !newStream) {
+-                if (getDeliveryMethod(currentStream) === 'Encode' || (getDeliveryMethod(currentStream) === 'Embed' && currentPlayMethod === 'Transcode')) {
+-                    // Need to change the transcoded stream to remove subs
+-                    changeStream(player, getCurrentTicks(player), { SubtitleStreamIndex: -1 });
+-                }
++            if (currentStream && !newStream && index === -1) {
++                // User selected 'Off' - always notify the server so the transcoding
++                // session drops subtitle burn-in regardless of delivery method.
++                changeStream(player, getCurrentTicks(player), { SubtitleStreamIndex: -1 });
++            } else if (currentStream && !newStream) {
++
+             } else if (!currentStream && newStream) {
+                 if (getDeliveryMethod(newStream) === 'External') {
+                     selectedTrackElementIndex = index;
+diff --git a/src/plugins/htmlVideoPlayer/plugin.js b/src/plugins/htmlVideoPlayer/plugin.js
+index 3cb80c7e2a..409ef19799 100644
+--- a/src/plugins/htmlVideoPlayer/plugin.js
++++ b/src/plugins/htmlVideoPlayer/plugin.js
+@@ -1774,6 +1774,8 @@ export class HtmlVideoPlayer {
+     setCurrentTrackElement(streamIndex, targetTextTrackIndex) {
+         console.debug(`setting new text track index to: ${streamIndex}`);
+
++        const callSeq = ++this.#setTrackSeq;
++
+         const mediaStreamTextTracks = getMediaStreamTextTracks(this._currentPlayOptions.mediaSource);
+
+         let track = streamIndex === -1 ? null : mediaStreamTextTracks.filter(function (t) {
+@@ -1801,6 +1803,10 @@ export class HtmlVideoPlayer {
+         const player = this;
+
+         sessionPromise.then((s) => {
++            if (callSeq !== this.#setTrackSeq) {
++                return; // A newer setCurrentTrackElement call superseded this one.
++            }
++
+             if (!s.TranscodingInfo || s.TranscodingInfo.IsVideoDirect) {
+                 // restore recorded delivery method if any
+                 mediaStreamTextTracks.forEach((t) => {
+@@ -1829,6 +1835,11 @@ export class HtmlVideoPlayer {
+         });
+     }
+
++    /**
++     * @type {number}
++     */
++    #setTrackSeq = 0;
++
+     /**
+      * @private
+      */

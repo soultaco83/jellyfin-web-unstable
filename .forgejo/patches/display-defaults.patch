@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 14 May 2026 00:00:00 -0500
+Subject: [PATCH] display-defaults
+
+diff --git a/src/apps/modern/features/libraries/constants/libraryRoutes.ts b/src/apps/modern/features/libraries/constants/libraryRoutes.ts
+index 392d60755e..8b64dedcd9 100644
+--- a/src/apps/modern/features/libraries/constants/libraryRoutes.ts
++++ b/src/apps/modern/features/libraries/constants/libraryRoutes.ts
+@@ -12,13 +12,13 @@ export const LibraryRoutes: LibraryRoute[] = [
+             {
+                 index: 0,
+                 label: 'Programs',
+-                view: LibraryTab.Programs,
+-                isDefault: true
++                view: LibraryTab.Programs
+             },
+             {
+                 index: 1,
+                 label: 'Guide',
+-                view: LibraryTab.Guide
++                view: LibraryTab.Guide,
++                isDefault: true
+             },
+             {
+                 index: 2,
+diff --git a/src/scripts/settings/userSettings.js b/src/scripts/settings/userSettings.js
+index 62050fc5e5..526f7a62a7 100644
+--- a/src/scripts/settings/userSettings.js
++++ b/src/scripts/settings/userSettings.js
+@@ -182,7 +182,7 @@ export class UserSettings {
+         }
+ 
+         // Enable it by default only for the platforms that play fMP4 for sure.
+-        return toBoolean(this.get('preferFmp4HlsContainer', false), browser.safari || browser.firefox || browser.chrome || browser.edgeChromium);
++        return toBoolean(this.get('preferFmp4HlsContainer', false), false);
+     }
+ 
+     /**
+@@ -364,7 +364,7 @@ export class UserSettings {
+             return this.set('useEpisodeImagesInNextUpAndResume', val.toString(), true);
+         }
+ 
+-        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), false);
++        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), true);
+     }
+ 
+     /**

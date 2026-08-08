@@ -1,0 +1,167 @@
+name: AI Patch Fix
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Reset to Upstream and Merge PRs"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN || github.token }}
+  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+  FORGEJO_REPO: jellyfin-web-unstable
+  FORGEJO_URL: http://10.10.10.220:3000
+  OWNER: soultaco83
+
+jobs:
+  ai-fix-patches:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ env.FORGEJO_TOKEN }}
+          persist-credentials: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq python3
+
+      - name: Verify DeepSeek API key configured
+        run: |
+          if [ -z "${{ secrets.DEEPSEEK_API_KEY }}" ]; then
+            echo "⚠️  DEEPSEEK_API_KEY secret is NOT configured"
+            echo "AI Patch Fix cannot run without an API key."
+            echo "Add a 'DEEPSEEK_API_KEY' secret in repo/org settings."
+            exit 0
+          else
+            echo "✅ DEEPSEEK_API_KEY is configured"
+          fi
+
+      - name: Fetch workflow run logs
+        run: |
+          RUN_ID=$(curl -s -H "Authorization: token ${FORGEJO_TOKEN}"             "${FORGEJO_URL}/api/v1/repos/${OWNER}/${FORGEJO_REPO}/actions/runs?status=failure"             | jq -r '.workflow_runs[0].id // ""')
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No failed run found, using current run context"
+            RUN_ID="${{ github.run_id }}"
+          fi
+          echo "Failed workflow run ID: ${RUN_ID}"
+
+          curl -s -L -o /tmp/workflow_logs.zip \
+            -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${FORGEJO_URL}/api/v1/repos/${OWNER}/${FORGEJO_REPO}/actions/runs/${RUN_ID}/logs"
+
+          if [ -f /tmp/workflow_logs.zip ]; then
+            mkdir -p /tmp/workflow_logs
+            unzip -o /tmp/workflow_logs.zip -d /tmp/workflow_logs/ || true
+            echo ""
+            echo "=== Workflow Logs ==="
+            # Concatenate all logs into a single file for AI diagnosis
+            > /tmp/workflow_error.log
+            for logfile in /tmp/workflow_logs/*/0_Apply*.txt /tmp/workflow_logs/**/*.txt /tmp/workflow_logs/*/*.txt; do
+              if [ -f "$logfile" ]; then
+                echo "--- $(basename "$logfile") ---"
+                cat "$logfile"
+                echo ""
+                cat "$logfile" >> /tmp/workflow_error.log
+                echo "" >> /tmp/workflow_error.log
+              fi
+            done 2>/dev/null || true
+          else
+            echo "⚠️  Could not fetch workflow logs (this is non-fatal)"
+          fi
+
+      - name: Reconstruct diagnostics from logs
+        run: |
+          echo "Re-running apply-patches.sh to capture current failure state..."
+
+          chmod +x .forgejo/scripts/apply-patches.sh 2>/dev/null || true
+          chmod +x .forgejo/scripts/ai-patch-fixer.sh 2>/dev/null || true
+
+          .forgejo/scripts/apply-patches.sh 2>&1 || true
+
+          if [ -f "/tmp/failed_patches.txt" ]; then
+            echo ""
+            echo "=== Reconstructed Failure Diagnostics ==="
+            cat /tmp/failed_patches.txt
+            echo ""
+            ls -la /tmp/patch_check_*.log /tmp/patch_targets_*.txt /tmp/patch_3way_*.log 2>/dev/null || true
+          else
+            echo "⚠️  No patch failures detected locally — the Reset workflow may have"
+            echo "   failed for a different reason (not a patch failure)."
+            echo "   Will attempt non-patch error diagnosis in next step."
+          fi
+
+      - name: Run AI Patch Fixer
+        id: ai-fix
+        run: |
+          echo "=== Starting AI Patch Fixer ==="
+          chmod +x .forgejo/scripts/ai-patch-fixer.sh
+
+          if .forgejo/scripts/ai-patch-fixer.sh; then
+            echo ""
+            echo "✅ AI Patch Fixer completed — Reset workflow re-triggered"
+          else
+            FIXER_EXIT=$?
+            echo ""
+            echo "⚠️  AI Patch Fixer exited with code ${FIXER_EXIT}"
+            if [ "$FIXER_EXIT" -eq 2 ]; then
+              echo "   DEEPSEEK_API_KEY not configured — cannot fix patches automatically"
+            elif [ "$FIXER_EXIT" -eq 1 ]; then
+              echo "   Max auto-retries exhausted OR AI could not fix all patches"
+              echo "   Manual review required."
+            fi
+          fi
+
+      - name: Generate summary
+        if: always()
+        run: |
+          echo "## AI Patch Fix Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f "/tmp/failed_patches.txt" ]; then
+            echo "### Failed Patches Before AI Fix" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/failed_patches.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f ".forgejo/ai_fix_retry_count" ]; then
+            RETRIES=$(cat ".forgejo/ai_fix_retry_count")
+            echo "- **Auto-fix retries used:** ${RETRIES}/3" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ steps.ai-fix.outcome }}" == "success" ]; then
+            echo "- ✅ Patches were AI-fixed and Reset workflow was re-triggered" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- ❌ AI fix could not resolve all issues — manual review needed" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Discord notification on all patches fixed
+        if: success() && env.DISCORD_WEBHOOK != ''
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          RETRIES=$(cat ".forgejo/ai_fix_retry_count" 2>/dev/null || echo "?")
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🤖 **AI Patch Fixer — jellyfin-web-unstable**\n✅ Patches auto-corrected (retry ${RETRIES}/3) and Reset workflow re-triggered.\n\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK"
+
+      - name: Discord notification on fix failure
+        if: failure() && env.DISCORD_WEBHOOK != ''
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"content\": \"🚨 **AI Patch Fixer — jellyfin-web-unstable FAILED**\n❌ Could not auto-fix all patches. Manual review required.\n\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$DISCORD_WEBHOOK"

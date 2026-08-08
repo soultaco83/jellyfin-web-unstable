@@ -1,0 +1,275 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 14 May 2026 00:00:00 -0500
+Subject: [PATCH] jellyfin-ratings
+
+diff --git a/src/apps/modern/features/preferences/components/DisplayPreferences.tsx b/src/apps/modern/features/preferences/components/DisplayPreferences.tsx
+index 9f653dbb00..aaa2ccd365 100644
+--- a/src/apps/modern/features/preferences/components/DisplayPreferences.tsx
++++ b/src/apps/modern/features/preferences/components/DisplayPreferences.tsx
+@@ -250,6 +250,24 @@ export function DisplayPreferences({ onChange, values }: Readonly<DisplayPrefere
+                     {globalize.translate('EnableBlurHashHelp')}
+                 </FormHelperText>
+             </FormControl>
++            <Typography variant='h2'>{globalize.translate('ItemCard')}</Typography>
++
++            <FormControl fullWidth>
++                <FormControlLabel
++                    aria-describedby='display-settings-card-ratings-description'
++                    control={
++                        <Checkbox
++                            checked={values.cardRatings}
++                            onChange={onChange}
++                        />
++                    }
++                    label={globalize.translate('LabelCardRatings')}
++                    name='cardRatings'
++                />
++                <FormHelperText id='display-settings-card-ratings-description'>
++                    {globalize.translate('CardRatingsHelp')}
++                </FormHelperText>
++            </FormControl>
+         </Stack>
+     );
+ }
+diff --git a/src/apps/modern/features/preferences/hooks/useDisplaySettings.ts b/src/apps/modern/features/preferences/hooks/useDisplaySettings.ts
+index ad608fc2c5..6c0a98c17d 100644
+--- a/src/apps/modern/features/preferences/hooks/useDisplaySettings.ts
++++ b/src/apps/modern/features/preferences/hooks/useDisplaySettings.ts
+@@ -85,6 +85,7 @@ async function loadDisplaySettings({
+ 
+     const displaySettings = {
+         customCss: settings.customCss() || '',
++        cardRatings: Boolean(settings.cardRatings()),
+         dashboardTheme: settings.dashboardTheme() || defaultTheme?.id || FALLBACK_THEME_ID,
+         dateTimeLocale: settings.dateTimeLocale() || 'auto',
+         disableCustomCss: Boolean(settings.disableCustomCss()),
+@@ -133,6 +134,7 @@ async function saveDisplaySettings({
+         userSettings.language(normalizeValue(newDisplaySettings.language));
+     }
+     userSettings.customCss(normalizeValue(newDisplaySettings.customCss));
++    userSettings.cardRatings(newDisplaySettings.cardRatings);
+     userSettings.dashboardTheme(newDisplaySettings.dashboardTheme);
+     userSettings.dateTimeLocale(normalizeValue(newDisplaySettings.dateTimeLocale));
+     userSettings.disableCustomCss(newDisplaySettings.disableCustomCss);
+diff --git a/src/apps/modern/features/preferences/types/displaySettingsValues.ts b/src/apps/modern/features/preferences/types/displaySettingsValues.ts
+index 961fc1d0dd..08ec2b6ada 100644
+--- a/src/apps/modern/features/preferences/types/displaySettingsValues.ts
++++ b/src/apps/modern/features/preferences/types/displaySettingsValues.ts
+@@ -1,5 +1,6 @@
+ export interface DisplaySettingsValues {
+     customCss: string;
++    cardRatings: boolean;
+     dashboardTheme: string;
+     dateTimeLocale: string;
+     disableCustomCss: boolean;
+diff --git a/src/components/cardbuilder/card.scss b/src/components/cardbuilder/card.scss
+index 92df9e8132..9548342acb 100644
+--- a/src/components/cardbuilder/card.scss
++++ b/src/components/cardbuilder/card.scss
+@@ -885,3 +885,52 @@ button::-moz-focus-inner {
+     transform: scale(1.4, 1.4);
+     transition: 0.2s;
+ }
++
++.cardRatingContainer {
++    display: flex;
++    flex-direction: column;
++    align-items: flex-start;
++    position: absolute;
++    top: 3px;
++    left: 3px;
++    padding: 5px;
++    font-weight: 550;
++    background-color: rgba(0, 0, 0, 0.5);
++    border-radius: 15px;
++    z-index: 10;
++}
++
++.card-hoverable:hover .cardRatingContainer {
++    opacity: 1;
++}
++
++.cardCriticRating {
++    background-repeat: no-repeat;
++    background-size: auto 1.2em;
++    min-height: 1.2em;
++    background-position: 2px center;
++    padding-left: 24px;
++}
++
++.cardRatingFresh {
++    background-image: url(../../assets/img/fresh.svg);
++}
++
++.cardRatingRotten {
++    background-image: url(../../assets/img/rotten.svg);
++}
++
++.cardCommunityRating {
++    min-height: 1.2em;
++    display: flex;
++    align-items: center;
++    margin-right: 3px;
++}
++
++.cardStarIcon {
++    width: auto !important;
++    height: auto !important;
++    font-size: 1.4em;
++    margin-right: 3px;
++    color: #f2b01e;
++}
+diff --git a/src/components/cardbuilder/cardBuilder.js b/src/components/cardbuilder/cardBuilder.js
+index 826b8b8c5b..29e96586cf 100644
+--- a/src/components/cardbuilder/cardBuilder.js
++++ b/src/components/cardbuilder/cardBuilder.js
+@@ -43,6 +43,7 @@ import {
+ } from './utils/builder';
+ import { getBackdropShape, getPortraitShape, getSquareShape } from './utils/shape';
+ import { getCardImageUrl } from './utils/url';
++import * as userSettings from 'scripts/settings/userSettings';
+ 
+ const enableFocusTransform = !browser.slow && !browser.edge;
+ 
+@@ -980,12 +981,36 @@ function buildCard(index, item, apiClient, options) {
+     let additionalCardContent = '';
+ 
+     if (layoutManager.desktop && !options.disableHoverMenu) {
++        additionalCardContent += getRatingHtml(item);
+         additionalCardContent += getHoverMenuHtml(item, action);
+     }
+ 
+     return '<' + tagName + ' data-index="' + index + '"' + timerAttributes + actionAttribute + ' data-isfolder="' + (item.IsFolder || false) + '" data-serverid="' + (item.ServerId || options.serverId) + '" data-id="' + (item.Id || item.ItemId) + '" data-type="' + item.Type + '"' + mediaTypeData + collectionTypeData + channelIdData + pathData + positionTicksData + collectionIdData + playlistIdData + contextData + parentIdData + startDate + endDate + ' data-prefix="' + escapeHtml(prefix) + '" class="' + className + '"' + ariaLabelAttribute + '>' + cardImageContainerOpen + innerCardFooter + cardImageContainerClose + overlayButtons + additionalCardContent + cardScalableClose + outerCardFooter + cardBoxClose + '</' + tagName + '>';
+ }
+ 
++/**
++ * Generates HTML markup for card rating.
++ * @param {object} item - Item used to generate the card rating.
++ * @returns {string} HTML markup of the card rating.
++ */
++function getRatingHtml(item) {
++    const showRatings = userSettings.cardRatings();
++    if (!showRatings) {
++        return '';
++    }
++
++    let cardRatingHtml = '';
++    if (item.CommunityRating) {
++        cardRatingHtml += `<div class="cardRating"><span class="material-icons star cardRatingIcon cardCommunityRating" aria-hidden="true"></span><span>${item.CommunityRating.toFixed(1)}</span></div>`;
++    }
++    if (item.CriticRating) {
++        const backgroundImageClass = item.CriticRating >= 60 ? 'cardRatingFresh' : 'cardRatingRotten';
++        cardRatingHtml += `<div class="cardRating"><span class="cardRatingIcon cardCriticRating ${backgroundImageClass}"></span><span>${item.CriticRating}</span></div>`;
++    }
++
++    return cardRatingHtml ? `<div class="cardRatingContainer">${cardRatingHtml}</div>` : '';
++}
++
+ /**
+  * Generates HTML markup for the card overlay.
+  * @param {object} item - Item used to generate the card overlay.
+diff --git a/src/components/displaySettings/displaySettings.js b/src/components/displaySettings/displaySettings.js
+index ff654f9c99..b3f120e4e4 100644
+--- a/src/components/displaySettings/displaySettings.js
++++ b/src/components/displaySettings/displaySettings.js
+@@ -129,6 +129,7 @@ function loadForm(context, user, userSettings) {
+     context.querySelector('#chkFadein').checked = userSettings.enableFastFadein();
+     context.querySelector('#chkBlurhash').checked = userSettings.enableBlurhash();
+     context.querySelector('#chkBackdrops').checked = userSettings.enableBackdrops();
++    context.querySelector('#selectCardRatings').value = userSettings.cardRatings();
+     context.querySelector('#chkDetailsBanner').checked = userSettings.detailsBanner();
+ 
+     context.querySelector('#chkDisableCustomCss').checked = userSettings.disableCustomCss();
+@@ -177,6 +178,7 @@ function saveUser(context, user, userSettingsInstance, apiClient) {
+     userSettingsInstance.enableFastFadein(context.querySelector('#chkFadein').checked);
+     userSettingsInstance.enableBlurhash(context.querySelector('#chkBlurhash').checked);
+     userSettingsInstance.enableBackdrops(context.querySelector('#chkBackdrops').checked);
++    userSettingsInstance.cardRatings(context.querySelector('#selectCardRatings').value);
+     userSettingsInstance.detailsBanner(context.querySelector('#chkDetailsBanner').checked);
+ 
+     userSettingsInstance.disableCustomCss(context.querySelector('#chkDisableCustomCss').checked);
+diff --git a/src/components/displaySettings/displaySettings.template.html b/src/components/displaySettings/displaySettings.template.html
+index 8f5a1c769e..aaaa5711d0 100644
+--- a/src/components/displaySettings/displaySettings.template.html
++++ b/src/components/displaySettings/displaySettings.template.html
+@@ -300,6 +300,19 @@ <h2 class="sectionTitle">
+         <div class="fieldDescription checkboxFieldDescription">${UseEpisodeImagesInNextUpHelp}</div>
+     </div>
+ 
++        <h2 class="sectionTitle">
++        ${ItemCard}
++    </h2>
++
++	<div class="checkboxContainer checkboxContainer-withDescription">
++		<label>
++			<input type="checkbox" is="emby-checkbox" id="chkCardRatings" />
++			<span>${ShowRatingsOnCards}</span>
++		</label>
++		<div class="fieldDescription checkboxFieldDescription">${ShowRatingsOnCardsHelp}</div>
++	</div>
++
++
+     <h2 class="sectionTitle">
+         ${ItemDetails}
+     </h2>
+diff --git a/src/scripts/settings/userSettings.js b/src/scripts/settings/userSettings.js
+index 62050fc5e5..80ef71b2c1 100644
+--- a/src/scripts/settings/userSettings.js
++++ b/src/scripts/settings/userSettings.js
+@@ -341,6 +341,19 @@ export class UserSettings {
+         return this.get('customCss', false);
+     }
+ 
++    /**
++    * Get or set 'cardRatings' state.
++    * @param {boolean|undefined} [val] - Whether to show ratings on cards.
++    * @return {boolean} Whether ratings are shown on cards.
++    */
++    cardRatings(val) {
++        if (val !== undefined) {
++            return this.set('cardRatings', val.toString(), false);
++        }
++
++        return this.get('cardRatings', 'true') !== 'false';
++    }
++
+     /**
+      * Get or set 'Details Banner' state.
+      * @param {boolean|undefined} [val] - Flag to enable 'Details Banner' or undefined.
+@@ -738,6 +751,7 @@ export const enableThemeVideos = currentSettings.enableThemeVideos.bind(currentS
+ export const enableFastFadein = currentSettings.enableFastFadein.bind(currentSettings);
+ export const enableBlurhash = currentSettings.enableBlurhash.bind(currentSettings);
+ export const enableBackdrops = currentSettings.enableBackdrops.bind(currentSettings);
++export const cardRatings = currentSettings.cardRatings.bind(currentSettings);
+ export const detailsBanner = currentSettings.detailsBanner.bind(currentSettings);
+ export const useEpisodeImagesInNextUpAndResume = currentSettings.useEpisodeImagesInNextUpAndResume.bind(currentSettings);
+ export const language = currentSettings.language.bind(currentSettings);
+diff --git a/src/strings/en-us.json b/src/strings/en-us.json
+index 6b0c956d46..66c32c8838 100755
+--- a/src/strings/en-us.json
++++ b/src/strings/en-us.json
+@@ -159,6 +159,7 @@
+     "Bwdif": "Bob Weaver DeInterlacing Filter (BWDIF)",
+     "CancelRecording": "Cancel recording",
+     "CancelSeries": "Cancel series",
++    "CardRatingsHelp": "Allows title cards to display critic/community ratings, when available.",
+     "CardSettings": "Card settings",
+     "Casual": "Casual",
+     "Categories": "Categories",
+@@ -610,6 +611,7 @@
+     "Inker": "Inker",
+     "InstallingPackage": "Installing {0} (version {1})",
+     "InstantMix": "Instant mix",
++    "ItemCard": "Item Card",
+     "ItemCount": "{0} items",
+     "ItemDetails": "Item Details",
+     "Items": "Items",
+@@ -680,6 +682,7 @@
+     "LabelCachePath": "Cache path",
+     "LabelCachePathHelp": "Specify a custom location for server cache files such as images. Leave blank to use the server default.",
+     "LabelCancelled": "Cancelled",
++    "LabelCardRatings": "Item Card Ratings Display",
+     "LabelCertificatePassword": "Certificate password",
+     "LabelCertificatePasswordHelp": "If your certificate requires a password, please enter it here.",
+     "LabelChannels": "Channels",

@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 14 May 2026 00:00:00 -0500
+Subject: [PATCH] fix-opera-hls-audio-codecs
+
+diff --git a/src/components/apphost.js b/src/components/apphost.js
+index 99cd2022ec..9f0cb66430 100644
+--- a/src/components/apphost.js
++++ b/src/components/apphost.js
+@@ -34,11 +34,11 @@ function getBaseProfileOptions(item) {
+         if (browser.edge) {
+             disableHlsVideoAudioCodecs.push('mp3');
+         }
+-        if (!browser.edgeChromium) {
++        if (!(browser.edgeChromium || browser.opera)) {
+             disableHlsVideoAudioCodecs.push('ac3');
+             disableHlsVideoAudioCodecs.push('eac3');
+         }
+-        if (!(browser.chrome || browser.edgeChromium || browser.firefox)) {
++        if (!(browser.chrome || browser.edgeChromium || browser.firefox || browser.opera)) {
+             disableHlsVideoAudioCodecs.push('opus');
+         }
+     }
