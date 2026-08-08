@@ -1,4 +1,5 @@
-import createDOMPurify from 'dompurify';
+// @ts-nocheck
+import DOMPurify from 'dompurify';
 import markdownIt from 'markdown-it';
 
 import { AppFeature } from 'constants/appFeature';
