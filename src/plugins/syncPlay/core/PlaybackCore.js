@@ -23,6 +23,8 @@ class PlaybackCore {
         this.lastSyncTime = new Date();
 
         this.playerIsBuffering = false;
+        this.bufferingRetryCount = 0; // Count of consecutive Ready request rejections
+        this.bufferingRetryTimeout = null;
 
         this.lastCommand = null; // Last scheduled playback command, might not be the latest one.
         this.scheduledCommandTimeout = null;
@@ -114,6 +116,8 @@ class PlaybackCore {
      */
     onReady() {
         this.playerIsBuffering = false;
+        clearTimeout(this.bufferingRetryTimeout);
+        this.bufferingRetryCount = 0;
         this.sendBufferingRequest(false);
         Events.trigger(this.manager, 'ready');
     }
@@ -123,8 +127,37 @@ class PlaybackCore {
      */
     onBuffering() {
         this.playerIsBuffering = true;
+        clearTimeout(this.bufferingRetryTimeout);
         this.sendBufferingRequest(true);
         Events.trigger(this.manager, 'buffering');
+    }
+
+    /**
+     * Resends the ready request after a Seek command correction from the server,
+     * using exponential backoff to avoid flooding the server while persistently
+     * attempting to sync when the group is stuck waiting on this client.
+     */
+    async retryReadyRequest() {
+        clearTimeout(this.bufferingRetryTimeout);
+
+        // Exponential backoff: 1s, 2s, 4s, 8s, capped at 15s
+        const baseDelay = 1000;
+        const maxDelay = 15000;
+        const delay = Math.min(baseDelay * Math.pow(2, this.bufferingRetryCount), maxDelay);
+        this.bufferingRetryCount++;
+
+        console.log(`SyncPlay retryReadyRequest: retry #${this.bufferingRetryCount} in ${delay}ms`);
+
+        this.bufferingRetryTimeout = setTimeout(() => {
+            // Only retry if we're still in a buffering state and the group is waiting
+            if (this.playerIsBuffering && this.manager.getGroupInfo()?.State === 'Waiting') {
+                console.log(`SyncPlay retryReadyRequest: sending retry #${this.bufferingRetryCount}`);
+                this.sendBufferingRequest(false);
+            } else {
+                console.log('SyncPlay retryReadyRequest: no longer buffering or group not waiting, canceling retry.');
+                this.bufferingRetryCount = 0;
+            }
+        }, delay);
     }
 
     /**
@@ -227,8 +260,17 @@ class PlaybackCore {
                             this.scheduleSeek(command.When, command.PositionTicks + randomOffsetTicks);
                             console.debug('SyncPlay applyCommand: adding random offset to force seek:', randomOffsetTicks, command);
                         } else {
-                            // All done, I guess?
-                            this.sendBufferingRequest(false);
+                            // Received a seek command that matches our current state, but the server
+                            // may have sent it because the group is waiting on another client's buffering.
+                            // If we're already in sync, tell the server we're ready.
+                            if (this.manager.getGroupInfo()?.State === 'Waiting') {
+                                // Group is waiting, send a ready request proactively
+                                console.debug('SyncPlay applyCommand: seek matches current position, group is waiting, retrying ready.');
+                                this.retryReadyRequest();
+                            } else {
+                                // All done.
+                                this.sendBufferingRequest(false);
+                            }
                         }
                         break;
                     default:
@@ -394,8 +436,15 @@ class PlaybackCore {
                 this.localPause();
                 this.sendBufferingRequest(false);
             }).catch((error) => {
-                console.error(`Timed out while waiting for 'ready' event! Seeking to ${positionTicks}.`, error);
+                console.error(`Timed out while waiting for 'ready' event! Seeking to ${positionTicks} and retrying.`, error);
                 this.localSeek(positionTicks);
+                this.localPause();
+                // If the group is still waiting, retry the ready request with backoff
+                if (this.manager.getGroupInfo()?.State === 'Waiting') {
+                    this.retryReadyRequest();
+                } else {
+                    this.sendBufferingRequest(false);
+                }
             });
         };
 

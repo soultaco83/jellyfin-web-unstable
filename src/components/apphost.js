@@ -34,11 +34,11 @@ function getBaseProfileOptions(item) {
         if (browser.edge) {
             disableHlsVideoAudioCodecs.push('mp3');
         }
-        if (!browser.edgeChromium) {
+        if (!(browser.edgeChromium || browser.opera)) {
             disableHlsVideoAudioCodecs.push('ac3');
             disableHlsVideoAudioCodecs.push('eac3');
         }
-        if (!(browser.chrome || browser.edgeChromium || browser.firefox)) {
+        if (!(browser.chrome || browser.edgeChromium || browser.firefox || browser.opera)) {
             disableHlsVideoAudioCodecs.push('opus');
         }
     }

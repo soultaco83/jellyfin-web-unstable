@@ -129,6 +129,7 @@ function loadForm(context, user, userSettings) {
     context.querySelector('#chkFadein').checked = userSettings.enableFastFadein();
     context.querySelector('#chkBlurhash').checked = userSettings.enableBlurhash();
     context.querySelector('#chkBackdrops').checked = userSettings.enableBackdrops();
+    context.querySelector('#selectCardRatings').value = userSettings.cardRatings();
     context.querySelector('#chkDetailsBanner').checked = userSettings.detailsBanner();
 
     context.querySelector('#chkDisableCustomCss').checked = userSettings.disableCustomCss();
@@ -177,6 +178,7 @@ function saveUser(context, user, userSettingsInstance, apiClient) {
     userSettingsInstance.enableFastFadein(context.querySelector('#chkFadein').checked);
     userSettingsInstance.enableBlurhash(context.querySelector('#chkBlurhash').checked);
     userSettingsInstance.enableBackdrops(context.querySelector('#chkBackdrops').checked);
+    userSettingsInstance.cardRatings(context.querySelector('#selectCardRatings').value);
     userSettingsInstance.detailsBanner(context.querySelector('#chkDetailsBanner').checked);
 
     userSettingsInstance.disableCustomCss(context.querySelector('#chkDisableCustomCss').checked);

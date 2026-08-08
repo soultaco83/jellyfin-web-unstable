@@ -279,6 +279,10 @@ export class HtmlVideoPlayer {
      */
     #currentBitmapSubRenderer;
     /**
+     * @type {any | null | undefined}
+     */
+    #currentPgsRenderer;
+    /**
      * @type {number | undefined}
      */
     #customTrackIndex;
@@ -1770,6 +1774,8 @@ export class HtmlVideoPlayer {
     setCurrentTrackElement(streamIndex, targetTextTrackIndex) {
         console.debug(`setting new text track index to: ${streamIndex}`);
 
+        const callSeq = ++this.#setTrackSeq;
+
         const mediaStreamTextTracks = getMediaStreamTextTracks(this._currentPlayOptions.mediaSource);
 
         let track = streamIndex === -1 ? null : mediaStreamTextTracks.filter(function (t) {
@@ -1797,6 +1803,10 @@ export class HtmlVideoPlayer {
         const player = this;
 
         sessionPromise.then((s) => {
+            if (callSeq !== this.#setTrackSeq) {
+                return; // A newer setCurrentTrackElement call superseded this one.
+            }
+
             if (!s.TranscodingInfo || s.TranscodingInfo.IsVideoDirect) {
                 // restore recorded delivery method if any
                 mediaStreamTextTracks.forEach((t) => {
@@ -1824,6 +1834,11 @@ export class HtmlVideoPlayer {
             }
         });
     }
+
+    /**
+     * @type {number}
+     */
+    #setTrackSeq = 0;
 
     /**
      * @private

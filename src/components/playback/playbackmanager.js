@@ -1541,11 +1541,12 @@ export class PlaybackManager {
 
             const currentPlayMethod = self.playMethod(player);
 
-            if (currentStream && !newStream) {
-                if (getDeliveryMethod(currentStream) === 'Encode' || (getDeliveryMethod(currentStream) === 'Embed' && currentPlayMethod === 'Transcode')) {
-                    // Need to change the transcoded stream to remove subs
-                    changeStream(player, getCurrentTicks(player), { SubtitleStreamIndex: -1 });
-                }
+            if (currentStream && !newStream && index === -1) {
+                // User selected 'Off' - always notify the server so the transcoding
+                // session drops subtitle burn-in regardless of delivery method.
+                changeStream(player, getCurrentTicks(player), { SubtitleStreamIndex: -1 });
+            } else if (currentStream && !newStream) {
+
             } else if (!currentStream && newStream) {
                 if (getDeliveryMethod(newStream) === 'External') {
                     selectedTrackElementIndex = index;

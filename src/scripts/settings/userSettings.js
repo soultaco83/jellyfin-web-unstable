@@ -182,7 +182,7 @@ export class UserSettings {
         }
 
         // Enable it by default only for the platforms that play fMP4 for sure.
-        return toBoolean(this.get('preferFmp4HlsContainer', false), browser.safari || browser.firefox || browser.chrome || browser.edgeChromium);
+        return toBoolean(this.get('preferFmp4HlsContainer', false), false);
     }
 
     /**
@@ -342,6 +342,19 @@ export class UserSettings {
     }
 
     /**
+    * Get or set 'cardRatings' state.
+    * @param {boolean|undefined} [val] - Whether to show ratings on cards.
+    * @return {boolean} Whether ratings are shown on cards.
+    */
+    cardRatings(val) {
+        if (val !== undefined) {
+            return this.set('cardRatings', val.toString(), false);
+        }
+
+        return this.get('cardRatings', 'true') !== 'false';
+    }
+
+    /**
      * Get or set 'Details Banner' state.
      * @param {boolean|undefined} [val] - Flag to enable 'Details Banner' or undefined.
      * @return {boolean} 'Details Banner' state.
@@ -364,7 +377,7 @@ export class UserSettings {
             return this.set('useEpisodeImagesInNextUpAndResume', val.toString(), true);
         }
 
-        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), false);
+        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), true);
     }
 
     /**
@@ -738,6 +751,7 @@ export const enableThemeVideos = currentSettings.enableThemeVideos.bind(currentS
 export const enableFastFadein = currentSettings.enableFastFadein.bind(currentSettings);
 export const enableBlurhash = currentSettings.enableBlurhash.bind(currentSettings);
 export const enableBackdrops = currentSettings.enableBackdrops.bind(currentSettings);
+export const cardRatings = currentSettings.cardRatings.bind(currentSettings);
 export const detailsBanner = currentSettings.detailsBanner.bind(currentSettings);
 export const useEpisodeImagesInNextUpAndResume = currentSettings.useEpisodeImagesInNextUpAndResume.bind(currentSettings);
 export const language = currentSettings.language.bind(currentSettings);
