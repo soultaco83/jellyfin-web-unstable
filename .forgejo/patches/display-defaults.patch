@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 14 May 2026 00:00:00 -0500
+Subject: [PATCH] display-defaults
+
+diff --git a/src/apps/modern/features/libraries/constants/libraryRoutes.ts b/src/apps/modern/features/libraries/constants/libraryRoutes.ts
+index 392d60755e10618c948f1709bb5e7beee5916707..8b64dedcd95452c40f673a654005d60f7c768fa2 100644
+--- a/src/apps/modern/features/libraries/constants/libraryRoutes.ts
++++ b/src/apps/modern/features/libraries/constants/libraryRoutes.ts
+@@ -12,13 +12,13 @@ export const LibraryRoutes: LibraryRoute[] = [
+             {
+                 index: 0,
+                 label: 'Programs',
+-                view: LibraryTab.Programs,
+-                isDefault: true
++                view: LibraryTab.Programs
+             },
+             {
+                 index: 1,
+                 label: 'Guide',
+-                view: LibraryTab.Guide
++                view: LibraryTab.Guide,
++                isDefault: true
+             },
+             {
+                 index: 2,
+diff --git a/src/scripts/settings/userSettings.js b/src/scripts/settings/userSettings.js
+index ec7eb179ddfbebf55bed6306ccc389562daaca31..ef32664f7b94027698431ce295147fc96eb6a674 100644
+--- a/src/scripts/settings/userSettings.js
++++ b/src/scripts/settings/userSettings.js
+@@ -363,7 +363,7 @@ export class UserSettings {
+             return this.set('useEpisodeImagesInNextUpAndResume', val.toString(), true);
+         }
+ 
+-        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), false);
++        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), true);
+     }
+ 
+     /**
