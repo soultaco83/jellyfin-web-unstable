@@ -112,6 +112,7 @@
 - [Alex Dickens](https://github.com/alex-dicko)
 - [shindouj](https://github.com/shindouj)
 - [Mumbolio85](https://github.com/Mumbolio85)
+- [FredMcAwesome](https://github.com/FredMcAwesome)
 
 ## Emby Contributors
 
