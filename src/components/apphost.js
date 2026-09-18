@@ -24,6 +24,7 @@ const BrowserName = {
     edge: 'Edge',
     firefox: 'Firefox',
     opera: 'Opera',
+    webkitGtk: 'WebKitGTK',
     safari: 'Safari'
 };
 
