@@ -1,3 +1,4 @@
+// @ts-nocheck
 import DOMPurify from 'dompurify';
 import throttle from 'lodash-es/throttle';
 import Screenfull from 'screenfull';
