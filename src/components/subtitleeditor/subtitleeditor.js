@@ -31,6 +31,8 @@ function downloadRemoteSubtitles(context, id) {
     const url = 'Items/' + currentItem.Id + '/RemoteSearch/Subtitles/' + id;
 
     const apiClient = ServerConnections.getApiClient(currentItem.ServerId);
+    loading.show();
+
     apiClient.ajax({
 
         type: 'POST',
@@ -42,6 +44,10 @@ function downloadRemoteSubtitles(context, id) {
         toast(globalize.translate('MessageDownloadQueued'));
 
         focusManager.autoFocus(context);
+        reload(context, apiClient, currentItem.Id);
+    }).catch(function (err) {
+        loading.hide();
+        console.error('[subtitleeditor] failed to download the subtitle', err);
     });
 }
 
