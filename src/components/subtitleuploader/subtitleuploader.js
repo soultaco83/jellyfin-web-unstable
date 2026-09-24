@@ -18,6 +18,8 @@ import '../formdialog.scss';
 import './style.scss';
 import { readFileAsBase64 } from 'utils/file';
 
+const VALID_SUBTITLE_EXTENSIONS = ['.sub', '.srt', '.vtt', '.ass', '.ssa', '.mks'];
+
 let currentItemId;
 let currentServerId;
 let currentFile;
@@ -33,7 +35,7 @@ function onFileReaderError(evt) {
 }
 
 function isValidSubtitleFile(file) {
-    return file && ['.sub', '.srt', '.vtt', '.ass', '.ssa', '.mks']
+    return file && VALID_SUBTITLE_EXTENSIONS
         .some(function(ext) {
             return file.name.endsWith(ext);
         });
@@ -47,6 +49,7 @@ function setFiles(page, files) {
         page.querySelector('#fldUpload').classList.add('hide');
         page.querySelector('#labelDropSubtitle').classList.remove('hide');
         currentFile = null;
+        toast(globalize.translate('MessageSubtitleFileTypeAllowed', file?.name, VALID_SUBTITLE_EXTENSIONS.join(', ')));
         return;
     }
 
@@ -85,7 +88,7 @@ async function onSubmit(e) {
     const file = currentFile;
 
     if (!isValidSubtitleFile(file)) {
-        toast(globalize.translate('MessageSubtitleFileTypeAllowed'));
+        toast(globalize.translate('MessageSubtitleFileTypeAllowed', file?.name, VALID_SUBTITLE_EXTENSIONS.join(', ')));
         return;
     }
 
