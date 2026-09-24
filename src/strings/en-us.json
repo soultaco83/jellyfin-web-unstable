@@ -144,6 +144,7 @@
     "ButtonShutdown": "Shutdown",
     "ButtonSignIn": "Sign In",
     "ButtonSignOut": "Sign Out",
+    "ButtonClearSiteData": "Clear Site Data",
     "ButtonExitApp": "Exit Application",
     "ButtonSpace": "Space",
     "ButtonSplit": "Split",
