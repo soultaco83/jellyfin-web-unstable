@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Polyfill for `MediaQueryList` event listeners.
  * Affected platforms:
