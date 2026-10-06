@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 30 Sep 2026 00:00:00 -0500
+Subject: [PATCH] Fix login page DOMPurify ReferenceError
+
+The session-login chunk aborts while it is being evaluated:
+
+    Uncaught (in promise) ReferenceError: DOMPurify is not defined
+        at 78856 (session-login.<hash>.chunk.js:2:3707)
+
+src/apps/legacy/controllers/session/login/index.js imported the dompurify
+default export as `createDOMPurify` (dompurify 2.5.9 exposes the callable
+factory instance as its default export; there is no `createDOMPurify`
+named export). A previous revision of this patch renamed only the call
+site to `DOMPurify()`, leaving no binding with that name inside the
+module. Webpack does not resolve bare identifiers, so it emitted a
+reference to an undeclared global and the whole legacy login controller
+failed to evaluate: the router never rendered the login view and the
+browser stayed on the `#/login?serverid=...&url=%2Fhome` redirect.
+
+Neither tsc (`checkJs: false` in tsconfig.json, so .js files are not
+type-checked) nor webpack (a free variable is not a compile error) reject
+this, which is why the broken bundle shipped.
+
+Rename the import to `DOMPurify` so the binding used by the call site
+exists, and keep constructing a dedicated DOMPurify instance so the
+relaxed ALLOWED_URI_REGEXP (matrix/tg/whatsapp/signal/irc links inside the
+login disclaimer) is not applied to the shared default instance that the
+other sanitize call sites rely on.
+
+Verified with webpack 5 + dompurify 2.5.9 (target: web, the
+build:production toolchain): the module evaluates, the dedicated instance
+keeps `matrix:` links and the shared instance still strips them. The
+import name now also matches the other DOMPurify call sites in the
+codebase (dialog, listview, itemDetails, htmlVideoPlayer, MarkdownBox.tsx,
+ConnectionErrorPage.tsx).
+
+diff --git a/src/apps/legacy/controllers/session/login/index.js b/src/apps/legacy/controllers/session/login/index.js
+index dad0b7d..a9ff7ad 100644
+--- a/src/apps/legacy/controllers/session/login/index.js
++++ b/src/apps/legacy/controllers/session/login/index.js
+@@ -1,4 +1,4 @@
+-import createDOMPurify from 'dompurify';
++import DOMPurify from 'dompurify';
+ import markdownIt from 'markdown-it';
+ 
+ import { AppFeature } from 'constants/appFeature';
+@@ -22,7 +22,7 @@ import { getDefaultBackgroundClass } from 'components/cardbuilder/utils/builder'
+ 
+ import './login.scss';
+ 
+-const domPurify = createDOMPurify();
++const domPurify = DOMPurify();
+ domPurify.setConfig({
+     // eslint-disable-next-line @typescript-eslint/naming-convention, sonarjs/regex-complexity -- DOMPurify config option; customizes its default regex
+     ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|callto|cid|xmpp|matrix|tg|whatsapp|signal|ircs?):|[^a-z]|[a-z+.-]+(?:[^-a-z+.:]|$))/i
+

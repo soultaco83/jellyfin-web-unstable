@@ -1,0 +1,141 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 14 May 2026 00:00:00 -0500
+Subject: [PATCH] clear-site-data-button
+
+diff --git a/src/apps/modern/components/AppToolbar/ClearSiteDataButton.tsx b/src/apps/modern/components/AppToolbar/ClearSiteDataButton.tsx
+new file mode 100644
+index 0000000000..598a36cb21
+--- /dev/null
++++ b/src/apps/modern/components/AppToolbar/ClearSiteDataButton.tsx
+@@ -0,0 +1,28 @@
++import DeleteOutline from '@mui/icons-material/DeleteOutline';
++import IconButton from '@mui/material/IconButton';
++import Tooltip from '@mui/material/Tooltip';
++import React, { useCallback } from 'react';
++
++import globalize from 'lib/globalize';
++import Dashboard from 'utils/dashboard';
++
++const ClearSiteDataButton = () => {
++    const onClick = useCallback(() => {
++        void Dashboard.clearSiteData();
++    }, []);
++
++    return (
++        <Tooltip title={globalize.translate('ButtonClearSiteData')}>
++            <IconButton
++                size='large'
++                aria-label={globalize.translate('ButtonClearSiteData')}
++                onClick={onClick}
++                color='inherit'
++            >
++                <DeleteOutline />
++            </IconButton>
++        </Tooltip>
++    );
++};
++
++export default ClearSiteDataButton;
+diff --git a/src/apps/modern/components/AppToolbar/index.tsx b/src/apps/modern/components/AppToolbar/index.tsx
+index 57b3d211ab..2c96425d9c 100644
+--- a/src/apps/modern/components/AppToolbar/index.tsx
++++ b/src/apps/modern/components/AppToolbar/index.tsx
+@@ -6,6 +6,7 @@ import { appRouter, PUBLIC_PATHS } from 'components/router/appRouter';
+ import BaseToolbar from 'components/toolbar/AppToolbar';
+ import ServerButton from 'components/toolbar/ServerButton';
+ 
++import ClearSiteDataButton from './ClearSiteDataButton';
+ import RemotePlayButton from './RemotePlayButton';
+ import SyncPlayButton from './SyncPlayButton';
+ import SearchButton from './SearchButton';
+@@ -37,6 +38,7 @@ const AppToolbar: FC<AppToolbarProps> = ({
+         <BaseToolbar
+             buttons={!isPublicPath && (
+                 <>
++                    <ClearSiteDataButton />
+                     <SyncPlayButton />
+                     <RemotePlayButton />
+                     <SearchButton />
+diff --git a/src/strings/en-us.json b/src/strings/en-us.json
+index 108c287c77..98ba55bb8c 100755
+--- a/src/strings/en-us.json
++++ b/src/strings/en-us.json
+@@ -144,6 +144,7 @@
+     "ButtonShutdown": "Shutdown",
+     "ButtonSignIn": "Sign In",
+     "ButtonSignOut": "Sign Out",
++    "ButtonClearSiteData": "Clear Site Data",
+     "ButtonExitApp": "Exit Application",
+     "ButtonSpace": "Space",
+     "ButtonSplit": "Split",
+diff --git a/src/utils/dashboard.js b/src/utils/dashboard.js
+index dedc49eace..c2e2030f79 100644
+--- a/src/utils/dashboard.js
++++ b/src/utils/dashboard.js
+@@ -17,7 +17,7 @@ import DirectoryBrowser from '../components/directorybrowser/directorybrowser';
+ import dialogHelper from '../components/dialogHelper/dialogHelper';
+ import itemIdentifier from '../components/itemidentifier/itemidentifier';
+ import { getLocationSearch } from './url.ts';
+-import { queryClient } from './query/queryClient';
++import { queryClient, persister } from './query/queryClient';
+ 
+ export function getCurrentUser() {
+     return window.ApiClient.getCurrentUser(false);
+@@ -115,6 +115,48 @@ export function logout() {
+             navigate('login');
+         }
+     });
++
++}
++
++async function deleteIndexedDB(name) {
++    return new Promise((resolve) => {
++        const req = indexedDB.deleteDatabase(name);
++        req.onsuccess = resolve;
++        req.onerror = resolve;
++        req.onblocked = resolve;
++    });
++}
++
++async function clearAllIndexedDB() {
++    try {
++        if (typeof indexedDB.databases === 'function') {
++            const dbs = await indexedDB.databases();
++            await Promise.all(dbs.map(db => deleteIndexedDB(db.name)));
++        } else {
++            await deleteIndexedDB('keyval-store');
++        }
++    } catch {
++        await persister.removeClient();
++    }
++}
++
++export async function clearSiteData() {
++    localStorage.clear();
++    sessionStorage.clear();
++
++    if ('caches' in window) {
++        const keys = await caches.keys();
++        await Promise.all(keys.map(key => caches.delete(key)));
++    }
++
++    if ('serviceWorker' in navigator) {
++        const registrations = await navigator.serviceWorker.getRegistrations();
++        await Promise.all(registrations.map(reg => reg.unregister()));
++    }
++
++    await clearAllIndexedDB();
++
++    window.location.reload();
+ }
+ 
+ export function getPluginUrl(name) {
+@@ -241,6 +283,7 @@ export const pageIdOn = function(eventName, id, fn) {
+ const Dashboard = {
+     alert,
+     capabilities,
++    clearSiteData,
+     confirm,
+     getPluginUrl,
+     getConfigurationResourceUrl,
