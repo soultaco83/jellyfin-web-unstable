@@ -113,6 +113,7 @@
 - [shindouj](https://github.com/shindouj)
 - [TheDreadPirate](https://github.com/thedreaddpirate)
 - [Mumbolio85](https://github.com/Mumbolio85)
+- [FredMcAwesome](https://github.com/FredMcAwesome)
 
 ## Emby Contributors
 
