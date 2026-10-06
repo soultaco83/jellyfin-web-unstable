@@ -441,6 +441,9 @@ export default function (view) {
     function onInputCommand(e) {
         const player = currentPlayer;
 
+        // Ignore commands when some dialog is opened
+        if (getOpenedDialog()) return;
+
         switch (e.detail.command) {
             case 'left':
                 if (currentVisibleMenu === 'osd') {
@@ -495,8 +498,7 @@ export default function (view) {
                 break;
 
             case 'back':
-                // Ignore command when some dialog is opened
-                if (currentVisibleMenu === 'osd' && !getOpenedDialog()) {
+                if (currentVisibleMenu === 'osd') {
                     hideOsd();
                     e.preventDefault();
                 }
@@ -1309,6 +1311,9 @@ export default function (view) {
         // Skip modified keys
         if (isKeyModified) return;
 
+        // Ignore keys when some dialog is opened
+        if (getOpenedDialog()) return;
+
         const key = keyboardnavigation.getKeyName(e);
 
         const btnPlayPause = osdBottomElement.querySelector('.btnPause');
@@ -1367,8 +1372,7 @@ export default function (view) {
                 break;
             case 'Escape':
             case 'Back':
-                // Ignore key when some dialog is opened
-                if (currentVisibleMenu === 'osd' && !getOpenedDialog()) {
+                if (currentVisibleMenu === 'osd') {
                     hideOsd();
                     e.stopPropagation();
                 }
