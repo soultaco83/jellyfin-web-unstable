@@ -112,6 +112,7 @@
 - [Alex Dickens](https://github.com/alex-dicko)
 - [shindouj](https://github.com/shindouj)
 - [TheDreadPirate](https://github.com/thedreaddpirate)
+- [Mumbolio85](https://github.com/Mumbolio85)
 
 ## Emby Contributors
 
