@@ -1,6 +1,49 @@
 <h1 align="center">Jellyfin Web</h1>
 <h3 align="center">Part of the <a href="https://jellyfin.org">Jellyfin Project</a></h3>
 
+## Currently Installed PRs
+
+The following PRs are automatically merged into this fork:
+
+- [Upstream PR #7058](https://github.com/jellyfin/jellyfin-web/pull/7058)
+- [Upstream PR #7307](https://github.com/jellyfin/jellyfin-web/pull/7307)
+- [Upstream PR #7440](https://github.com/jellyfin/jellyfin-web/pull/7440)
+- [Upstream PR #7455](https://github.com/jellyfin/jellyfin-web/pull/7455)
+- [Upstream PR #7588](https://github.com/jellyfin/jellyfin-web/pull/7588)
+- [Upstream PR #7661](https://github.com/jellyfin/jellyfin-web/pull/7661)
+- [Upstream PR #7671](https://github.com/jellyfin/jellyfin-web/pull/7671)
+- [Upstream PR #7846](https://github.com/jellyfin/jellyfin-web/pull/7846)
+- [Upstream PR #7863](https://github.com/jellyfin/jellyfin-web/pull/7863)
+- [Upstream PR #7915](https://github.com/jellyfin/jellyfin-web/pull/7915)
+- [Upstream PR #8137](https://github.com/jellyfin/jellyfin-web/pull/8137)
+- [Upstream PR #8191](https://github.com/jellyfin/jellyfin-web/pull/8191)
+- [Upstream PR #8332](https://github.com/jellyfin/jellyfin-web/pull/8332)
+- [Upstream PR #8334](https://github.com/jellyfin/jellyfin-web/pull/8334)
+- [Upstream PR #8352](https://github.com/jellyfin/jellyfin-web/pull/8352)
+- [Upstream PR #8356](https://github.com/jellyfin/jellyfin-web/pull/8356)
+- [Upstream PR #8368](https://github.com/jellyfin/jellyfin-web/pull/8368)
+- [Upstream PR #8380](https://github.com/jellyfin/jellyfin-web/pull/8380)
+- [Upstream PR #8559](https://github.com/jellyfin/jellyfin-web/pull/8559)
+- [Upstream PR #8565](https://github.com/jellyfin/jellyfin-web/pull/8565)
+- [Upstream PR #8615](https://github.com/jellyfin/jellyfin-web/pull/8615)
+- [Upstream PR #8635](https://github.com/jellyfin/jellyfin-web/pull/8635)
+- [Upstream PR #8647](https://github.com/jellyfin/jellyfin-web/pull/8647)
+- [Upstream PR #8651](https://github.com/jellyfin/jellyfin-web/pull/8651)
+- [Upstream PR #8656](https://github.com/jellyfin/jellyfin-web/pull/8656)
+- [Upstream PR #8675](https://github.com/jellyfin/jellyfin-web/pull/8675)
+- [Upstream PR #8690](https://github.com/jellyfin/jellyfin-web/pull/8690)
+- [Upstream PR #8707](https://github.com/jellyfin/jellyfin-web/pull/8707)
+
+### Recently Removed PRs (Last 7 Days)
+
+#### ❌ Closed Without Merging
+The following PRs were automatically removed as they were closed without being merged:
+
+- ~~[Upstream PR #7913](https://github.com/jellyfin/jellyfin-web/pull/7913)~~ (closed on 2026-10-25)
+- ~~[Upstream PR #8674](https://github.com/jellyfin/jellyfin-web/pull/8674)~~ (closed on 2026-10-31)
+- ~~[Upstream PR #8692](https://github.com/jellyfin/jellyfin-web/pull/8692)~~ (closed on 2026-10-31)
+
+---
 ---
 
 <p align="center">
