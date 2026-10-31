@@ -554,25 +554,50 @@ export class HtmlVideoPlayer {
         const includeCorsCredentials = await getIncludeCorsCredentials();
 
         return new Promise((resolve, reject) => {
-            let maxBufferLength = 30;
+            requireHlsPlayer(async () => {
+                // Dynamic buffer length based on bitrate
+                // Limit max buffer size to 50MB (50 * 1024 * 1024 * 8 bits = 419430400 bits)
+                const maxBufferSizeBits = 50 * 1024 * 1024 * 8;
+                const sourceBitrate = options.mediaSource?.MediaStreams?.find(s => s.Type === 'Video')?.BitRate || 8000000; // Default 8Mbps
+                const maxStreamingBitrate = playbackManager.getMaxStreamingBitrate(this) || sourceBitrate;
+                let bitrate = Math.min(sourceBitrate, maxStreamingBitrate);
 
-            // Some browsers cannot handle huge fragments in high bitrate.
-            // This issue usually happens when using HWA encoders with a high bitrate setting.
-            // Limit the BufferLength to 6s, it works fine when playing 4k 120Mbps over HLS on chrome.
-            // https://github.com/video-dev/hls.js/issues/876
-            if ((browser.chrome || browser.edgeChromium || browser.firefox) && playbackManager.getMaxStreamingBitrate(this) >= 25000000) {
-                maxBufferLength = 6;
-            }
-
-            const hls = new Hls({
-                startPosition: options.playerStartPositionTicks / 10000000,
-                manifestLoadingTimeOut: 20000,
-                maxBufferLength,
-                maxMaxBufferLength: maxBufferLength,
-                videoPreference: { preferHDR: true },
-                xhrSetup(xhr) {
-                    xhr.withCredentials = includeCorsCredentials;
+                // For transcoded streams, prefer the negotiated transcode target from the URL
+                if (options.playMethod === 'Transcode') {
+                    const params = new URL(url, window.location.href).searchParams;
+                    const videoBitrate = Number(params.get('VideoBitrate')) || 0;
+                    const audioBitrate = Number(params.get('AudioBitrate')) || 0;
+                    const transcodedBitrate = videoBitrate + audioBitrate;
+                    if (transcodedBitrate > 0) {
+                        bitrate = transcodedBitrate;
+                    }
                 }
+
+                let maxBufferLength = Math.floor(maxBufferSizeBits / bitrate);
+                // Clamp buffer length between 6s and 60s
+                maxBufferLength = Math.max(6, Math.min(60, maxBufferLength));
+
+                const includeCorsCredentials = await getIncludeCorsCredentials();
+
+                const hls = new Hls({
+                    startPosition: options.playerStartPositionTicks / 10000000,
+                    manifestLoadingTimeOut: 20000,
+                    maxBufferLength: maxBufferLength,
+                    maxMaxBufferLength: maxBufferLength,
+                    videoPreference: { preferHDR: true },
+                    xhrSetup(xhr) {
+                        xhr.withCredentials = includeCorsCredentials;
+                    }
+                });
+                hls.loadSource(url);
+                hls.attachMedia(elem);
+
+                bindEventsToHlsPlayer(this, hls, elem, this.onError, resolve, reject);
+
+                this._hlsPlayer = hls;
+
+                // This is needed in setCurrentTrackElement
+                this.#currentSrc = url;
             });
             hls.loadSource(url);
             hls.attachMedia(elem);
