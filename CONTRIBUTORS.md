@@ -111,6 +111,7 @@
 - [austinhardaway](https://github.com/austinhardaway)
 - [Alex Dickens](https://github.com/alex-dicko)
 - [shindouj](https://github.com/shindouj)
+- [FredMcAwesome](https://github.com/FredMcAwesome)
 - [TheDreadPirate](https://github.com/thedreaddpirate)
 - [bymoxb](https://github.com/bymoxb)
 - [Mumbolio85](https://github.com/Mumbolio85)
