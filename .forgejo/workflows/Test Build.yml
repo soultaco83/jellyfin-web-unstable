@@ -1,0 +1,28 @@
+name: Test Build
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Reset to Upstream and Merge PRs"]
+    types:
+      - completed
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+
+    - name: Install dependencies
+      run: npm ci --no-audit
+
+    - name: Build project
+      run: npm run build:production
