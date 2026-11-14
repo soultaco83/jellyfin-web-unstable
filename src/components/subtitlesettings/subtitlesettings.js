@@ -49,6 +49,32 @@ function toggleBitmapSubtitleAspectModeField(view) {
     fieldBitmapSubtitleAspectMode.classList.toggle('hide', !renderPgsVisible || !renderPgsEnabled);
 }
 
+function hasUserModifiedSettings(user, appSettings) {
+    // Check if user has explicitly set subtitle mode
+    const hasSubtitleMode = user.Configuration.SubtitleMode !== undefined &&
+                           user.Configuration.SubtitleMode !== null &&
+                           user.Configuration.SubtitleMode !== '';
+
+    // Check if user has explicitly set burn-in setting (empty string = old default, not a user choice)
+    const burnInSetting = appSettings.get('subtitleburnin');
+    const hasBurnInSetting = burnInSetting !== null && burnInSetting !== undefined && burnInSetting !== '';
+
+    // Check if user has explicitly set always burn-in setting
+    const alwaysBurnInSetting = appSettings.get('alwaysburnintranscoding');
+    const hasAlwaysBurnInSetting = alwaysBurnInSetting !== null && alwaysBurnInSetting !== undefined;
+
+    // Check if user has explicitly set PGS rendering setting
+    const renderPgsSetting = appSettings.get('subtitlerenderpgs');
+    const hasRenderPgsSetting = renderPgsSetting !== null && renderPgsSetting !== undefined;
+
+    return {
+        subtitleMode: hasSubtitleMode,
+        burnIn: hasBurnInSetting,
+        alwaysBurnIn: hasAlwaysBurnInSetting,
+        renderPgs: hasRenderPgsSetting
+    };
+}
+
 function loadForm(context, user, userSettings, appearanceSettings, apiClient) {
     apiClient.getCultures().then(function (allCultures) {
         if (appHost.supports(AppFeature.SubtitleBurnIn) && user.Policy.EnableVideoPlaybackTranscoding) {
@@ -60,11 +86,17 @@ function loadForm(context, user, userSettings, appearanceSettings, apiClient) {
         settingsHelper.populateLanguages(selectSubtitleLanguage, allCultures);
 
         selectSubtitleLanguage.value = user.Configuration.SubtitleLanguagePreference || '';
-        context.querySelector('#selectSubtitlePlaybackMode').value = user.Configuration.SubtitleMode || '';
+
+        // Check if user has modified settings
+        const userModifications = hasUserModifiedSettings(user, appSettings);
+
+        // Set subtitle mode - default to 'Smart' if not modified by user
+        context.querySelector('#selectSubtitlePlaybackMode').value =
+            userModifications.subtitleMode ? user.Configuration.SubtitleMode : 'Smart';
 
         context.querySelector('#selectSubtitlePlaybackMode').dispatchEvent(new CustomEvent('change', {}));
 
-        context.querySelector('#selectSubtitleStyling').value = appearanceSettings.subtitleStyling || 'Auto';
+        context.querySelector('#selectSubtitleStyling').value = appearanceSettings.subtitleStyling || 'Custom';
         context.querySelector('#selectSubtitleStyling').dispatchEvent(new CustomEvent('change', {}));
         context.querySelector('#selectTextSize').value = appearanceSettings.textSize || '';
         context.querySelector('#selectTextWeight').value = appearanceSettings.textWeight || 'normal';
@@ -76,12 +108,20 @@ function loadForm(context, user, userSettings, appearanceSettings, apiClient) {
         context.querySelector('#sliderVerticalPosition').value = appearanceSettings.verticalPosition;
         context.querySelector('#selectBitmapSubtitleAspectMode').value = appearanceSettings.aspectMode || 'stretch';
 
-        context.querySelector('#selectSubtitleBurnIn').value = appSettings.get('subtitleburnin') || '';
-        context.querySelector('#chkSubtitleRenderPgs').checked = appSettings.get('subtitlerenderpgs') === 'true';
+        // Set burn-in mode - default to 'all' if not modified by user
+        const burnInValue = appSettings.get('subtitleburnin');
+        context.querySelector('#selectSubtitleBurnIn').value =
+            userModifications.burnIn ? burnInValue : 'all';
+
+        context.querySelector('#chkSubtitleRenderPgs').checked =
+            userModifications.renderPgs ? appSettings.get('subtitlerenderpgs') === 'true' : true;
 
         context.querySelector('#selectSubtitleBurnIn').dispatchEvent(new CustomEvent('change', {}));
         toggleBitmapSubtitleAspectModeField(context);
-        context.querySelector('#chkAlwaysBurnInSubtitleWhenTranscoding').checked = appSettings.alwaysBurnInSubtitleWhenTranscoding();
+
+        // Set always burn-in - default to true if not modified by user
+        context.querySelector('#chkAlwaysBurnInSubtitleWhenTranscoding').checked =
+            userModifications.alwaysBurnIn ? appSettings.alwaysBurnInSubtitleWhenTranscoding() : true;
 
         onAppearanceFieldChange({
             target: context.querySelector('#selectTextSize')

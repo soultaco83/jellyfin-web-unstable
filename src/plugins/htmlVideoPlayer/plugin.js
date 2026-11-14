@@ -279,6 +279,10 @@ export class HtmlVideoPlayer {
      */
     #currentBitmapSubRenderer;
     /**
+     * @type {any | null | undefined}
+     */
+    #currentPgsRenderer;
+    /**
      * @type {number | undefined}
      */
     #customTrackIndex;
