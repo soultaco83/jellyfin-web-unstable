@@ -29,11 +29,27 @@ import template from './subtitleeditor.template.html';
 let currentItem;
 let hasChanges;
 
-async function downloadRemoteSubtitles(context, subtitleId) {
-    const api = ServerConnections.getApi(currentItem.ServerId);
-    await getSubtitleApi(api).downloadRemoteSubtitles({
-        itemId: currentItem.Id,
-        subtitleId
+function downloadRemoteSubtitles(context, id) {
+    const url = 'Items/' + currentItem.Id + '/RemoteSearch/Subtitles/' + id;
+
+    const apiClient = ServerConnections.getApiClient(currentItem.ServerId);
+    loading.show();
+
+    apiClient.ajax({
+
+        type: 'POST',
+        url: apiClient.getUrl(url)
+
+    }).then(function () {
+        hasChanges = true;
+
+        toast(globalize.translate('MessageDownloadQueued'));
+
+        focusManager.autoFocus(context);
+        reload(context, apiClient, currentItem.Id);
+    }).catch(function (err) {
+        loading.hide();
+        console.error('[subtitleeditor] failed to download the subtitle', err);
     });
 
     hasChanges = true;
