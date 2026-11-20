@@ -1,0 +1,12 @@
+diff --git a/src/scripts/settings/userSettings.js b/src/scripts/settings/userSettings.js
+--- a/src/scripts/settings/userSettings.js
++++ b/src/scripts/settings/userSettings.js
+@@ -171,7 +171,7 @@
+             return this.set('allowedAudioChannels', val, false);
+         }
+ 
+-        return this.get('allowedAudioChannels', false) || '-1';
++        return this.get('allowedAudioChannels', false) || '6';
+     }
+ 
+     /**

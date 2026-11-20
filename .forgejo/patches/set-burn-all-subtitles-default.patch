@@ -1,0 +1,12 @@
+diff --git a/src/scripts/browserDeviceProfile.js b/src/scripts/browserDeviceProfile.js
+--- a/src/scripts/browserDeviceProfile.js
++++ b/src/scripts/browserDeviceProfile.js
+@@ -1625,7 +1625,7 @@
+     // Subtitle profiles
+     // External vtt or burn in
+     profile.SubtitleProfiles = [];
+-    const subtitleBurninSetting = appSettings.get('subtitleburnin');
++    const subtitleBurninSetting = appSettings.get('subtitleburnin') || 'all';
+     const subtitleRenderPgsSetting = appSettings.get('subtitlerenderpgs') === 'true';
+     if (subtitleBurninSetting !== 'all') {
+         if (supportsTextTracks()) {

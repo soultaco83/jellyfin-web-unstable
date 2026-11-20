@@ -1,0 +1,216 @@
+diff --git a/src/components/itemidentifier/itemidentifier.js b/src/components/itemidentifier/itemidentifier.js
+index bf69b3119f..b4fd7ca6df 100644
+--- a/src/components/itemidentifier/itemidentifier.js
++++ b/src/components/itemidentifier/itemidentifier.js
+@@ -30,7 +30,6 @@ let currentResolve;
+ let currentReject;
+ let hasChanges = false;
+ let currentSearchResult;
+-let currentView = 'search';
+ 
+ async function searchForIdentificationResults(page) {
+     let lookupInfo = {
+@@ -92,7 +91,10 @@ async function searchForIdentificationResults(page) {
+ function showIdentificationSearchResults(page, results) {
+     const identificationSearchResults = page.querySelector('.identificationSearchResults');
+ 
+-    showResultsView(page);
++    page.querySelector('.popupIdentifyForm').classList.add('hide');
++    identificationSearchResults.classList.remove('hide');
++    page.querySelector('.identifyOptionsForm').classList.add('hide');
++    page.querySelector('.dialogContentInner').classList.remove('dialog-content-centered');
+ 
+     let html = '';
+     let i;
+@@ -143,7 +145,6 @@ function showIdentifyOptions(page, identifyResult) {
+     identifyOptionsForm.classList.remove('hide');
+     page.querySelector('#chkIdentifyReplaceImages').checked = true;
+     page.querySelector('.dialogContentInner').classList.add('dialog-content-centered');
+-    currentView = 'options';
+ 
+     currentSearchResult = identifyResult;
+ 
+@@ -165,22 +166,6 @@ function showIdentifyOptions(page, identifyResult) {
+     focusManager.focus(identifyOptionsForm.querySelector('.btnSubmit'));
+ }
+ 
+-function showSearchView(page) {
+-    page.querySelector('.popupIdentifyForm').classList.remove('hide');
+-    page.querySelector('.identificationSearchResults').classList.add('hide');
+-    page.querySelector('.identifyOptionsForm').classList.add('hide');
+-    page.querySelector('.dialogContentInner').classList.add('dialog-content-centered');
+-    currentView = 'search';
+-}
+-
+-function showResultsView(page) {
+-    page.querySelector('.popupIdentifyForm').classList.add('hide');
+-    page.querySelector('.identificationSearchResults').classList.remove('hide');
+-    page.querySelector('.identifyOptionsForm').classList.add('hide');
+-    page.querySelector('.dialogContentInner').classList.remove('dialog-content-centered');
+-    currentView = 'results';
+-}
+-
+ function getSearchResultHtml(result, index) {
+     // TODO move card creation code to Card component
+ 
+@@ -210,6 +195,21 @@ function getSearchResultHtml(result, index) {
+ 
+     cardBoxCssClass += ' cardBox-bottompadded';
+ 
++    html += `<button type="button" class="${cssClass}" data-index="${index}">`;
++    html += `<div class="${cardBoxCssClass}">`;
++    html += '<div class="cardScalable">';
++    html += `<div class="${padderClass}"></div>`;
++
++    html += '<div class="cardContent searchImage">';
++
++    if (result.ImageUrl) {
++        html += `<div class="cardImageContainer coveredImage" style="background-image:url('${result.ImageUrl}');"></div>`;
++    } else {
++        html += `<div class="cardImageContainer coveredImage defaultCardBackground defaultCardBackground1"><div class="cardText cardCenteredText">${escapeHtml(result.Name)}</div></div>`;
++    }
++    html += '</div>';
++    html += '</div>';
++
+     let numLines = 3;
+     if (currentItemType === 'MusicAlbum') {
+         numLines++;
+@@ -226,28 +226,6 @@ function getSearchResultHtml(result, index) {
+         lines.push(result.ProductionYear);
+     }
+ 
+-    const tooltipText = lines
+-        .filter(Boolean)
+-        .map(line => String(line))
+-        .join(' - ');
+-
+-    const buttonTitle = tooltipText ? ` title="${escapeHtml(tooltipText)}"` : '';
+-
+-    html += `<button type="button" class="${cssClass}" data-index="${index}"${buttonTitle}>`;
+-    html += `<div class="${cardBoxCssClass}">`;
+-    html += '<div class="cardScalable">';
+-    html += `<div class="${padderClass}"></div>`;
+-
+-    html += '<div class="cardContent searchImage">';
+-
+-    if (result.ImageUrl) {
+-        html += `<div class="cardImageContainer coveredImage" style="background-image:url('${result.ImageUrl}');"></div>`;
+-    } else {
+-        html += `<div class="cardImageContainer coveredImage defaultCardBackground defaultCardBackground1"><div class="cardText cardCenteredText">${escapeHtml(result.Name)}</div></div>`;
+-    }
+-    html += '</div>';
+-    html += '</div>';
+-
+     for (let i = 0; i < numLines; i++) {
+         if (i === 0) {
+             html += '<div class="cardText cardText-first cardTextCentered">';
+@@ -308,11 +286,18 @@ async function showIdentificationForm(page, item) {
+         html += '</div>';
+     }
+ 
+-        page.querySelector('.formDialogHeaderTitle').innerHTML = globalize.translate('Identify');
++    page.querySelector('#txtLookupName').value = '';
+ 
+-        currentSearchResult = null;
+-        showSearchView(page);
+-    });
++    if (item.Type === 'Person' || item.Type === 'BoxSet') {
++        page.querySelector('.fldLookupYear').classList.add('hide');
++        page.querySelector('#txtLookupYear').value = '';
++    } else {
++        page.querySelector('.fldLookupYear').classList.remove('hide');
++        page.querySelector('#txtLookupYear').value = '';
++    }
++
++    page.querySelector('.identifyProviderIds').innerHTML = html;
++    page.querySelector('.formDialogHeaderTitle').innerHTML = globalize.translate('Identify');
+ }
+ 
+ async function showEditor(itemId) {
+@@ -321,85 +306,7 @@ async function showEditor(itemId) {
+     const api = ServerConnections.getApi(currentServerId);
+     const { data: item } = await getLibraryApi(api).getItem({ itemId });
+ 
+-    apiClient.getItem(apiClient.getCurrentUserId(), itemId).then(item => {
+-        currentItem = item;
+-        currentItemType = currentItem.Type;
+-        currentSearchResult = null;
+-        currentView = 'search';
+-
+-        const dialogOptions = {
+-            size: 'small',
+-            removeOnClose: true,
+-            scrollY: false
+-        };
+-
+-        if (layoutManager.tv) {
+-            dialogOptions.size = 'fullscreen';
+-        }
+-
+-        const dlg = dialogHelper.createDialog(dialogOptions);
+-
+-        dlg.classList.add('formDialog');
+-        dlg.classList.add('recordingDialog');
+-
+-        let html = '';
+-        html += globalize.translateHtml(template, 'core');
+-
+-        dlg.innerHTML = html;
+-
+-        // Has to be assigned a z-index after the call to .open()
+-        dlg.addEventListener('close', onDialogClosed);
+-
+-        if (layoutManager.tv) {
+-            scrollHelper.centerFocus.on(dlg.querySelector('.formDialogContent'), false);
+-        }
+-
+-        if (item.Path) {
+-            dlg.querySelector('.fldPath').classList.remove('hide');
+-        } else {
+-            dlg.querySelector('.fldPath').classList.add('hide');
+-        }
+-
+-        dlg.querySelector('.txtPath').innerText = item.Path || '';
+-
+-        dialogHelper.open(dlg);
+-
+-        dlg.querySelector('.popupIdentifyForm').addEventListener('submit', e => {
+-            e.preventDefault();
+-            searchForIdentificationResults(dlg);
+-            return false;
+-        });
+-
+-        dlg.querySelector('.identifyOptionsForm').addEventListener('submit', e => {
+-            e.preventDefault();
+-            submitIdentficationResult(dlg);
+-            return false;
+-        });
+-
+-        dlg.querySelector('.btnCancel').addEventListener('click', () => {
+-            if (currentView === 'options') {
+-                showResultsView(dlg);
+-                if (layoutManager.tv) {
+-                    focusManager.autoFocus(dlg.querySelector('.identificationSearchResults'));
+-                }
+-                return;
+-            }
+-
+-            if (currentView === 'results') {
+-                showSearchView(dlg);
+-                const lookupInput = dlg.querySelector('#txtLookupName');
+-                if (lookupInput) {
+-                    focusManager.focus(lookupInput);
+-                }
+-                return;
+-            }
+-
+-            dialogHelper.close(dlg);
+-        });
+-
+-        dlg.classList.add('identifyDialog');
+-
+-        showIdentificationForm(dlg, item);
++    if (item.LockData) {
+         loading.hide();
+         toast(globalize.translate('MessageItemMetadataLocked'));
+         currentReject();

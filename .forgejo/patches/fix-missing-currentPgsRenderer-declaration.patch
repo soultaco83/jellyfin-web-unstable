@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Soultaco83 <soulnacho@gmail.com>
+Date: Wed, 30 Jul 2026 00:00:00 -0500
+Subject: [PATCH] add-missing-currentPgsRenderer-field-declaration
+
+Add the `#currentPgsRenderer` private field declaration that is referenced
+in `#applyAspectRatio` (line 2306) but was never declared in the class body.
+Matches the existing pattern used by `#currentAssRenderer` and `#currentBitmapSubRenderer`.
+
+diff --git a/src/plugins/htmlVideoPlayer/plugin.js b/src/plugins/htmlVideoPlayer/plugin.js
+index 0000000000..0000000000 100644
+--- a/src/plugins/htmlVideoPlayer/plugin.js
++++ b/src/plugins/htmlVideoPlayer/plugin.js
+@@ -277,6 +277,10 @@
+      * @type {any | null | undefined}
+      */
+     #currentBitmapSubRenderer;
++    /**
++     * @type {any | null | undefined}
++     */
++    #currentPgsRenderer;
+     /**
+      * @type {number | undefined}
+      */

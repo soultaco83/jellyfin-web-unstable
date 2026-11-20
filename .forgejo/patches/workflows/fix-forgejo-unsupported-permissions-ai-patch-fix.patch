@@ -1,0 +1,20 @@
+diff --git a/.forgejo/workflows/AI Patch Fix.yml b/.forgejo/workflows/AI Patch Fix.yml
+index 23bc39a564..9d6a41fb08 100644
+--- a/.forgejo/workflows/AI Patch Fix.yml	
++++ b/.forgejo/workflows/AI Patch Fix.yml	
+@@ -7,9 +7,12 @@ on:
+     types:
+       - completed
+ 
+-permissions:
+-  contents: write
+-  actions: write
++# NOTE: The GitHub Actions `permissions:` key is NOT supported by Forgejo.
++# Forgejo ignores it and reports a workflow warning for this job:
++#   "Job ai-fix-patches or its workflow has a permissions field, which is not
++#    supported in Forgejo and will be ignored."
++# Write access is granted through the FORGEJO_TOKEN secret below and/or
++# Authorized Integrations, not through `permissions:`.
+ 
+ env:
+   FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN || github.token }}
