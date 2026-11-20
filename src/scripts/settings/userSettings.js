@@ -154,7 +154,7 @@ export class UserSettings {
             return this.set('allowedAudioChannels', val, false);
         }
 
-        return this.get('allowedAudioChannels', false) || '-1';
+        return this.get('allowedAudioChannels', false) || '6';
     }
 
     /**
@@ -350,7 +350,7 @@ export class UserSettings {
             return this.set('useEpisodeImagesInNextUpAndResume', val.toString(), true);
         }
 
-        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), false);
+        return toBoolean(this.get('useEpisodeImagesInNextUpAndResume', true), true);
     }
 
     /**
