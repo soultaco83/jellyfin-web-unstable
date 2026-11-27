@@ -115,6 +115,7 @@
 - [TheDreadPirate](https://github.com/thedreaddpirate)
 - [bymoxb](https://github.com/bymoxb)
 - [Mumbolio85](https://github.com/Mumbolio85)
+- [HumptyDumpty101](https://github.com/HumptyDumpty101)
 
 ## Emby Contributors
 
