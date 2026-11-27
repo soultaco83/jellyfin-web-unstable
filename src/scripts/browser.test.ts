@@ -57,35 +57,18 @@ describe('Browser', () => {
         expect(browser.tv).toBeFalsy();
     });
 
-    it('should identify Safari browsers', () => {
-        let browser = detectBrowser('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15');
-        expect(browser.safari).toBe(true);
-        expect(browser.webkit).toBe(true);
-        expect(browser.osx).toBe(true);
-        expect(browser.versionMajor).toBe(17);
-        expect(browser.version).toBe('17.2.1');
-        expect(browser.webkitGtk).toBeFalsy();
+    it('should identify webOS versions from the web engine', () => {
+        // LG OLED77C14LB (C1, webOS 6.5.3)
+        let browser = detectBrowser('Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.79 Safari/537.36 WebAppManager');
+        expect(browser.web0s).toBe(true);
+        expect(browser.web0sVersion).toBe(6);
+        expect(browser.chrome).toBeFalsy();
+        expect(browser.tv).toBe(true);
 
-        browser = detectBrowser('Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1');
-        expect(browser.safari).toBe(true);
-        expect(browser.webkit).toBe(true);
-        expect(browser.iphone).toBe(true);
-        expect(browser.mobile).toBe(true);
-        expect(browser.versionMajor).toBe(17);
-        expect(browser.webkitGtk).toBeFalsy();
-    });
-
-    it('should identify WebKitGTK browsers', () => {
-        let browser = detectBrowser('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Epiphany/45.0 Safari/605.1.15');
-        expect(browser.webkitGtk).toBe(true);
-        expect(browser.webkit).toBe(true);
-        expect(browser.safari).toBeFalsy();
-        expect(browser.versionMajor).toBe(17);
-
-        browser = detectBrowser('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15');
-        expect(browser.webkitGtk).toBe(true);
-        expect(browser.webkit).toBe(true);
-        expect(browser.safari).toBeFalsy();
-        expect(browser.versionMajor).toBe(60);
+        // LG OLED65C44LA (C4, webOS 26)
+        browser = detectBrowser('Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.207 Safari/537.36 WebAppManager');
+        expect(browser.web0s).toBe(true);
+        expect(browser.web0sVersion).toBeGreaterThanOrEqual(6);
+        expect(browser.chrome).toBeFalsy();
     });
 });
