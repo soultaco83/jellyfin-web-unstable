@@ -116,6 +116,7 @@
 - [bymoxb](https://github.com/bymoxb)
 - [Mumbolio85](https://github.com/Mumbolio85)
 - [HumptyDumpty101](https://github.com/HumptyDumpty101)
+- [wddwycc](https://github.com/wddwycc)
 
 ## Emby Contributors
 
