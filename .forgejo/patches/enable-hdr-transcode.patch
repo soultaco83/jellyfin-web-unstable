@@ -1,0 +1,46 @@
+diff --git a/src/apps/dashboard/routes/playback/transcoding.tsx b/src/apps/dashboard/routes/playback/transcoding.tsx
+--- a/src/apps/dashboard/routes/playback/transcoding.tsx
++++ b/src/apps/dashboard/routes/playback/transcoding.tsx
+@@ -22,6 +22,9 @@ import Button from '@mui/material/Button';
+ import { type ActionFunctionArgs, Form, useActionData, useNavigation, useSubmit } from 'react-router-dom';
+ import { QUERY_KEY, useNamedConfiguration } from 'hooks/useNamedConfiguration';
+ import type { EncodingOptions } from '@jellyfin/sdk/lib/generated-client/models/encoding-options';
++
++// EnableHdrTranscoding ships with the server but is not in the generated client yet.
++type HdrEncodingOptions = EncodingOptions & { EnableHdrTranscoding?: boolean };
+ import { HardwareAccelerationType } from '@jellyfin/sdk/lib/generated-client/models/hardware-acceleration-type';
+ import { ServerConnections } from 'lib/jellyfin-apiclient';
+ import { getSystemApi } from '@jellyfin/sdk/lib/utils/api/system-api';
+@@ -471,6 +474,20 @@ export const Component = () => {
+ 
+                             {(hardwareAccelType === 'none' || isHwaSelected) && (
+                                 <>
++                                    <FormControl>
++                                        <FormControlLabel
++                                            label={globalize.translate('EnableHdrTranscoding')}
++                                            control={
++                                                <Checkbox
++                                                    name='EnableHdrTranscoding'
++                                                    checked={(config as HdrEncodingOptions).EnableHdrTranscoding}
++                                                    onChange={onCheckboxChange}
++                                                />
++                                            }
++                                        />
++                                        <FormHelperText>{globalize.translate('EnableHdrTranscodingHelp')}</FormHelperText>
++                                    </FormControl>
++
+                                     {isHwaSelected && (
+                                         <FormControl>
+                                             <FormControlLabel
+diff --git a/src/strings/en-us.json b/src/strings/en-us.json
+--- a/src/strings/en-us.json
++++ b/src/strings/en-us.json
+@@ -328,6 +328,8 @@
+     "EnableStreamLoopingHelp": "Enable this if live streams only contain a few seconds of data and need to be continuously requested. Enabling this when not needed may cause problems.",
+     "EnableThemeSongsHelp": "Play the theme songs in background while browsing the library.",
+     "EnableThemeVideosHelp": "Play theme videos in the background while browsing the library.",
++    "EnableHdrTranscoding": "Keep HDR when transcoding",
++    "EnableHdrTranscodingHelp": "Send HDR10 through to the transcoded stream (HEVC Main10, 10-bit BT.2020/PQ) when the device reports it can display HDR. When off, transcoded HDR is tone-mapped to SDR.",
+     "EnableTonemapping": "Enable Tone mapping",
+     "EnableTrueHd": "Enable TrueHD",
+     "EnableTrueHdHelp": "Only enable if your device supports TrueHD or is connected to a compatible audio receiver, otherwise it may cause playback failure.",
